@@ -313,6 +313,14 @@ impl DatabaseQueries {
         Ok(results)
     }
 
+    pub async fn execute_use_command(&self, database_name: &str) -> Result<()> {
+        // USE 命令不能使用预编译语句，需要使用原始查询
+        sqlx::query(&format!("USE `{}`", database_name))
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn execute_query_raw(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>)> {
         let rows = sqlx::query(query)
             .fetch_all(&self.pool)

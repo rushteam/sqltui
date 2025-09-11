@@ -176,10 +176,17 @@ impl App {
                     self.input.set_mode(InputMode::Command);
                 }
                 KeyCode::Enter => {
-                    if let Err(e) = self.handle_sql_command().await {
-                        // SQL 执行失败时显示错误，但不退出程序
-                        self.content.set_content_type(ContentType::Error);
-                        self.content.set_content(format!("SQL 执行错误: {}", e));
+                    match self.handle_sql_command().await {
+                        Ok(should_exit) => {
+                            if should_exit {
+                                return Ok(true); // 退出程序
+                            }
+                        }
+                        Err(e) => {
+                            // SQL 执行失败时显示错误，但不退出程序
+                            self.content.set_content_type(ContentType::Error);
+                            self.content.set_content(format!("SQL 执行错误: {}", e));
+                        }
                     }
                 }
                 KeyCode::Tab => {
@@ -316,6 +323,15 @@ impl App {
                 self.sidebar.set_show_databases(false);
                 self.sidebar.set_current_db(Some(db_name.clone()));
                 self.content.set_content_type(ContentType::Database);
+                self.content.set_content(format!("正在切换到数据库 '{}'...", db_name));
+                
+                // 执行 USE 命令切换到数据库
+                if let Err(e) = self.db_queries.execute_use_command(&db_name).await {
+                    self.content.set_content_type(ContentType::Error);
+                    self.content.set_content(format!("切换数据库失败: {}", e));
+                    return Ok(());
+                }
+                
                 self.content.set_content(format!("正在加载数据库 '{}' 的表...", db_name));
                 if let Err(e) = self.load_tables().await {
                     self.content.set_content_type(ContentType::Error);
@@ -417,7 +433,7 @@ impl App {
             }
             "exit" | "quit" | "\\q" | "\\quit" => {
                 // 退出程序
-                return Ok(());
+                return Ok(true);
             }
             _ => {
                 // 执行 SQL 查询
@@ -459,7 +475,7 @@ impl App {
                 }
             }
         }
-        Ok(())
+        Ok(false)
     }
 
     async fn load_databases(&mut self) -> Result<()> {
@@ -502,8 +518,9 @@ impl App {
     }
 
     async fn load_table_data(&mut self, table_name: String, limit: usize) -> Result<()> {
-        if let Some(db_name) = &self.current_db {
-            let query = format!("SELECT * FROM `{}`.`{}` LIMIT {}", db_name, table_name, limit);
+        if let Some(_db_name) = &self.current_db {
+            // 由于已经执行了 USE 命令，可以直接使用表名
+            let query = format!("SELECT * FROM `{}` LIMIT {}", table_name, limit);
             match self.db_queries.execute_query_raw(&query).await {
                 Ok((headers, rows)) => {
                     if rows.is_empty() {
@@ -548,11 +565,14 @@ impl App {
 
     fn parse_use_command(&self, command: &str) -> Option<String> {
         let trimmed = command.trim();
+        // 支持多种格式：USE db, use db, USE db;, use db; 等
         if trimmed.to_uppercase().starts_with("USE ") {
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
             if parts.len() >= 2 {
-                let db_name = parts[1].trim_end_matches(';');
-                return Some(db_name.to_string());
+                let db_name = parts[1].trim_end_matches(';').trim();
+                if !db_name.is_empty() {
+                    return Some(db_name.to_string());
+                }
             }
         }
         None
@@ -567,6 +587,13 @@ impl App {
             return Ok(());
         }
 
+        // 执行 USE 命令切换到数据库
+        if let Err(e) = self.db_queries.execute_use_command(&db_name).await {
+            self.content.set_content_type(ContentType::Error);
+            self.content.set_content(format!("切换数据库失败: {}", e));
+            return Ok(());
+        }
+        
         // 切换数据库
         self.current_db = Some(db_name.clone());
         self.status_bar.set_current_db(Some(db_name.clone()));
@@ -606,6 +633,7 @@ impl App {
         - Enter 执行查询\n\
         - Tab 添加缩进(4个空格)\n\
         - USE database 切换数据库\n\
+        - exit/quit/\\q 退出程序\n\
         - Esc 退出 SQL 编辑模式\n\n\
         表结构模式:\n\
         - Up/Down: 滚动查看字段\n\

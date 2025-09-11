@@ -326,11 +326,11 @@ impl App {
                 self.content.set_content(format!("正在切换到数据库 '{}'...", db_name));
                 
                 // 执行 USE 命令切换到数据库
-                if let Err(e) = self.db_queries.execute_use_command(&db_name).await {
-                    self.content.set_content_type(ContentType::Error);
-                    self.content.set_content(format!("切换数据库失败: {}", e));
-                    return Ok(());
-                }
+                // if let Err(e) = self.db_queries.execute_use_command(&db_name).await {
+                //     self.content.set_content_type(ContentType::Error);
+                //     self.content.set_content(format!("切换数据库失败: {}", e));
+                //     return Ok(());
+                // }
                 
                 self.content.set_content(format!("正在加载数据库 '{}' 的表...", db_name));
                 if let Err(e) = self.load_tables().await {
@@ -588,11 +588,11 @@ impl App {
         }
 
         // 执行 USE 命令切换到数据库
-        if let Err(e) = self.db_queries.execute_use_command(&db_name).await {
-            self.content.set_content_type(ContentType::Error);
-            self.content.set_content(format!("切换数据库失败: {}", e));
-            return Ok(());
-        }
+        // if let Err(e) = self.db_queries.execute_use_command(&db_name).await {
+        //     self.content.set_content_type(ContentType::Error);
+        //     self.content.set_content(format!("切换数据库失败: {}", e));
+        //     return Ok(());
+        // }
         
         // 切换数据库
         self.current_db = Some(db_name.clone());

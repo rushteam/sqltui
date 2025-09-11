@@ -89,14 +89,6 @@ impl Content {
     }
 
     fn render_table_schema(&mut self, frame: &mut Frame, area: Rect) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3), // 标题
-                Constraint::Min(0),    // 表格
-            ])
-            .split(area);
-
         // 标题
         let title = if let Some(comment) = &self.table_comment {
             if comment.is_empty() {
@@ -108,11 +100,23 @@ impl Content {
             "表结构".to_string()
         };
 
-        let title_block = Block::default()
+        // 创建主框
+        let main_block = Block::default()
             .title(title)
             .borders(Borders::ALL)
             .style(Style::default().fg(Color::Green));
-        frame.render_widget(title_block, chunks[0]);
+
+        // 在框内创建布局
+        let inner_area = main_block.inner(area);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(0),    // 表格区域
+            ])
+            .split(inner_area);
+
+        // 渲染主框
+        frame.render_widget(main_block, area);
 
         // 表格
         let rows: Vec<ratatui::widgets::Row> = self.schema_columns
@@ -153,7 +157,7 @@ impl Content {
             .block(Block::default().borders(Borders::NONE))
             .column_spacing(1);
 
-        frame.render_widget(table, chunks[1]);
+        frame.render_widget(table, chunks[0]);
     }
 
     fn render_table_data(&mut self, frame: &mut Frame, area: Rect) {

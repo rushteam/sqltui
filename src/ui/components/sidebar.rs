@@ -195,7 +195,7 @@ impl Sidebar {
             frame.render_stateful_widget(list, chunks[0], &mut self.table_list_state);
         }
 
-        // 状态
+        // 状态信息（在框内底部）
         let status = if let Some(selected) = self.get_selected_database() {
             format!("选中: {}", selected.name)
         } else if let Some(selected) = self.get_selected_table() {
@@ -204,23 +204,23 @@ impl Sidebar {
             String::new()
         };
 
-        let status_block = Block::default()
-            .title(status)
-            .borders(Borders::NONE)
-            .style(Style::default().fg(Color::Green));
-        frame.render_widget(status_block, chunks[2]);
+        let status_style = Style::default().fg(Color::Green);
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(status).style(status_style),
+            chunks[1]
+        );
 
-        // 帮助
+        // 帮助信息（在框内底部）
         let help_text = if self.show_databases {
             "Up/Down 移动 | Enter 选择 | d 详情"
         } else {
             "Up/Down 移动 | Enter 选择 | t 详情 | s 返回"
         };
 
-        let help_block = Block::default()
-            .title(help_text)
-            .borders(Borders::NONE)
-            .style(Style::default().fg(Color::Gray));
-        frame.render_widget(help_block, chunks[3]);
+        let help_style = Style::default().fg(Color::Gray);
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(help_text).style(help_style),
+            chunks[2]
+        );
     }
 }

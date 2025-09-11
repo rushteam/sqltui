@@ -72,12 +72,12 @@ impl DatabaseQueries {
             };
             
             // 跳过系统数据库
-            if db_name == "information_schema" || 
-               db_name == "performance_schema" || 
-               db_name == "mysql" || 
-               db_name == "sys" {
-                continue;
-            }
+            // if db_name == "information_schema" || 
+            //    db_name == "performance_schema" || 
+            //    db_name == "mysql" || 
+            //    db_name == "sys" {
+            //     continue;
+            // }
             
             // 尝试获取表数量（可能失败，但不影响基本功能）
             let table_count = self.get_table_count_simple(&db_name).await.ok();
@@ -298,6 +298,13 @@ impl DatabaseQueries {
             .fetch_one(&self.pool)
             .await?;
         Ok(row.get::<String, _>("version"))
+    }
+
+    pub async fn get_current_user(&self) -> Result<String> {
+        let row = sqlx::query("SELECT USER() as user")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.get::<String, _>("user"))
     }
 
     pub async fn execute_query(&self, query: &str) -> Result<Vec<serde_json::Value>> {

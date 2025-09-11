@@ -57,6 +57,7 @@ impl App {
         // 初始化数据
         app.load_databases().await?;
         app.load_mysql_version().await?;
+        app.set_username().await?;
 
         Ok(app)
     }
@@ -428,6 +429,18 @@ impl App {
             }
             Err(e) => {
                 eprintln!("Failed to get MySQL version: {}", e);
+            }
+        }
+        Ok(())
+    }
+
+    async fn set_username(&mut self) -> Result<()> {
+        match self.db_queries.get_current_user().await {
+            Ok(username) => {
+                self.status_bar.set_username(username);
+            }
+            Err(e) => {
+                eprintln!("Failed to get current user: {}", e);
             }
         }
         Ok(())

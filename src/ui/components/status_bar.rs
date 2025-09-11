@@ -8,6 +8,7 @@ use ratatui::{
 pub struct StatusBar {
     current_db: Option<String>,
     mysql_version: Option<String>,
+    username: Option<String>,
     status: String,
 }
 
@@ -16,6 +17,7 @@ impl StatusBar {
         Self {
             current_db: None,
             mysql_version: None,
+            username: None,
             status: "READY".to_string(),
         }
     }
@@ -26,6 +28,10 @@ impl StatusBar {
 
     pub fn set_mysql_version(&mut self, version: String) {
         self.mysql_version = Some(version);
+    }
+
+    pub fn set_username(&mut self, username: String) {
+        self.username = Some(username);
     }
 
 
@@ -40,9 +46,16 @@ impl StatusBar {
             .map(|v| format!("MySQL: {}", v))
             .unwrap_or_else(|| "MySQL: Unknown".to_string());
 
+        let user_info = self.username
+            .as_ref()
+            .map(|u| format!("User: {}", u))
+            .unwrap_or_else(|| "User: Unknown".to_string());
+
         let content = Line::from(vec![
             Span::styled("[MYSQL_CLIENT] ", Style::default().fg(Color::Green).bold()),
             Span::styled(&self.status, Style::default().fg(Color::Yellow)),
+            Span::raw(" | "),
+            Span::styled(&user_info, Style::default().fg(Color::Magenta)),
             Span::raw(" | "),
             Span::styled(&db_info, Style::default().fg(Color::Cyan)),
             Span::raw(" | "),

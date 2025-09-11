@@ -23,6 +23,7 @@ pub struct Content {
     table_rows: Vec<Vec<String>>,
     schema_columns: Vec<SchemaColumn>,
     table_comment: Option<String>,
+    current_table_name: Option<String>,
 }
 
 impl Content {
@@ -34,6 +35,7 @@ impl Content {
             table_rows: Vec::new(),
             schema_columns: Vec::new(),
             table_comment: None,
+            current_table_name: None,
         }
     }
 
@@ -49,6 +51,10 @@ impl Content {
         self.schema_columns = columns;
         self.table_comment = comment;
         self.content_type = ContentType::TableSchema;
+    }
+
+    pub fn set_table_name(&mut self, table_name: String) {
+        self.current_table_name = Some(table_name);
     }
 
     pub fn set_table_data(&mut self, headers: Vec<String>, rows: Vec<Vec<String>>) {
@@ -89,12 +95,12 @@ impl Content {
     }
 
     fn render_table_schema(&mut self, frame: &mut Frame, area: Rect) {
-        // 标题
-        let title = if let Some(comment) = &self.table_comment {
-            if comment.is_empty() {
-                "表结构".to_string()
+        // 标题 - 显示实际的表名
+        let title = if let Some(v) = &self.current_table_name {
+            if !v.is_empty() {
+                format!("表结构 - {}", v)
             } else {
-                format!("表结构 - {}", comment)
+                "表结构".to_string()
             }
         } else {
             "表结构".to_string()

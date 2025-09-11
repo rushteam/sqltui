@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -73,7 +73,7 @@ impl App {
         // 设置终端
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        execute!(stdout, EnterAlternateScreen)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -99,11 +99,10 @@ impl App {
         // 确保显示光标
         let _ = terminal.show_cursor();
         
-        // 退出备用屏幕并禁用鼠标捕获
+        // 退出备用屏幕
         let _ = execute!(
             terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
+            LeaveAlternateScreen
         );
         
         // 恢复终端模式
@@ -115,8 +114,7 @@ impl App {
         // 额外清理：直接操作 stdout
         let _ = execute!(
             io::stdout(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
+            LeaveAlternateScreen
         );
         let _ = io::stdout().flush();
     }
@@ -411,6 +409,7 @@ impl App {
         if let Some(db_name) = &self.current_db {
             match self.db_queries.get_table_schema(db_name, &table_name).await {
                 Ok((columns, comment)) => {
+                    self.content.set_table_name(table_name);
                     self.content.set_table_schema(columns, comment);
                 }
                 Err(e) => {

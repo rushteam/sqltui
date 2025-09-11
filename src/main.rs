@@ -4,7 +4,6 @@ use tracing_subscriber;
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, LeaveAlternateScreen},
-    event::DisableMouseCapture,
 };
 use std::io::{self, Write};
 
@@ -25,8 +24,7 @@ fn setup_panic_handler() {
         let _ = disable_raw_mode();
         let _ = execute!(
             io::stdout(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
+            LeaveAlternateScreen
         );
         let _ = io::stdout().flush();
         

@@ -168,6 +168,41 @@ impl App {
     }
 
     async fn handle_key_event(&mut self, key: KeyEvent) -> Result<bool> {
+        // 如果在SQL模式下，只处理特定的键
+        if self.input.get_mode() == &InputMode::SQL {
+            match key.code {
+                KeyCode::Esc => {
+                    // ESC键退出SQL模式
+                    self.input.set_mode(InputMode::Command);
+                }
+                KeyCode::Enter => {
+                    if let Err(e) = self.handle_sql_command().await {
+                        // SQL 执行失败时显示错误，但不退出程序
+                        self.content.set_content_type(ContentType::Error);
+                        self.content.set_content(format!("SQL 执行错误: {}", e));
+                    }
+                }
+                KeyCode::Tab => {
+                    // TAB键添加4个空格用于缩进
+                    self.input.add_char(' ');
+                    self.input.add_char(' ');
+                    self.input.add_char(' ');
+                    self.input.add_char(' ');
+                }
+                KeyCode::Char(ch) => {
+                    self.input.add_char(ch);
+                }
+                KeyCode::Backspace => {
+                    self.input.delete_char();
+                }
+                _ => {
+                    // 在SQL模式下忽略其他所有键
+                }
+            }
+            return Ok(false);
+        }
+
+        // 在CMD模式下处理所有快捷键
         match key.code {
             KeyCode::Char('q') => {
                 // 按 q 键直接退出
@@ -185,40 +220,50 @@ impl App {
                 self.handle_escape().await?;
             }
             KeyCode::Up => {
-                // 如果在表结构模式下，优先处理表结构滚动
-                if matches!(self.content.get_content_type(), ContentType::TableSchema) {
-                    self.content.scroll_schema_up();
-                } else {
-                    self.sidebar.previous_item();
+                // 根据内容类型处理滚动
+                match self.content.get_content_type() {
+                    ContentType::TableSchema => {
+                        self.content.scroll_schema_up();
+                    }
+                    ContentType::TableData => {
+                        self.content.scroll_data_up();
+                    }
+                    _ => {
+                        self.sidebar.previous_item();
+                    }
                 }
             }
             KeyCode::Down => {
-                // 如果在表结构模式下，优先处理表结构滚动
-                if matches!(self.content.get_content_type(), ContentType::TableSchema) {
-                    // 这里我们使用一个估算的高度值，实际限制会在render时进行
-                    // 由于render方法会自动限制滚动位置，这里直接调用滚动方法
-                    self.content.scroll_schema_down();
-                } else {
-                    self.sidebar.next_item();
+                // 根据内容类型处理滚动
+                match self.content.get_content_type() {
+                    ContentType::TableSchema => {
+                        self.content.scroll_schema_down();
+                    }
+                    ContentType::TableData => {
+                        self.content.scroll_data_down();
+                    }
+                    _ => {
+                        self.sidebar.next_item();
+                    }
+                }
+            }
+            KeyCode::Left => {
+                // 如果在表数据模式下，处理水平滚动
+                if matches!(self.content.get_content_type(), ContentType::TableData) {
+                    self.content.scroll_data_left();
+                }
+            }
+            KeyCode::Right => {
+                // 如果在表数据模式下，处理水平滚动
+                if matches!(self.content.get_content_type(), ContentType::TableData) {
+                    self.content.scroll_data_right();
                 }
             }
             KeyCode::Enter => {
-                if self.input.get_mode() == &InputMode::SQL {
-                    if let Err(e) = self.handle_sql_command().await {
-                        // SQL 执行失败时显示错误，但不退出程序
-                        self.content.set_content_type(ContentType::Error);
-                        self.content.set_content(format!("SQL 执行错误: {}", e));
-                    }
-                } else {
-                    self.handle_enter().await?;
-                }
+                self.handle_enter().await?;
             }
             KeyCode::Char(' ') => {
-                if self.input.get_mode() == &InputMode::SQL {
-                    self.input.add_char(' ');
-                } else {
-                    self.handle_space().await?;
-                }
+                self.handle_space().await?;
             }
             KeyCode::Char('d') => {
                 self.handle_database_detail().await?;
@@ -229,18 +274,9 @@ impl App {
             KeyCode::Char('s') => {
                 self.handle_switch_database().await?;
             }
-            KeyCode::Char('\\') => {
+            KeyCode::Char(':') => {
+                // 进入SQL模式
                 self.input.set_mode(InputMode::SQL);
-            }
-            KeyCode::Char(ch) => {
-                if self.input.get_mode() == &InputMode::SQL {
-                    self.input.add_char(ch);
-                }
-            }
-            KeyCode::Backspace => {
-                if self.input.get_mode() == &InputMode::SQL {
-                    self.input.delete_char();
-                }
             }
             _ => {}
         }
@@ -264,7 +300,7 @@ impl App {
                 self.current_db = None;
                 self.status_bar.set_current_db(None);
                 self.content.set_content_type(ContentType::Welcome);
-                self.content.set_content("MYSQL CLIENT v1.0 - READY\n\n[INSTRUCTIONS]\n- Use Up/Down keys to navigate\n- Press Enter to view table structure\n- Press Space to view table data (10 rows)\n- Type commands or SQL in bottom input\n- Press 'q' to exit\n\n[STATUS] CONNECTED".to_string());
+                self.content.set_content("MYSQL CLIENT v1.0 - READY\n\n[INSTRUCTIONS]\n- Use Up/Down keys to navigate\n- Press Enter to view table structure\n- Press Space to view table data (10 rows)\n- Press ':' to enter SQL edit mode\n- Press 'q' to exit\n\n[STATUS] CONNECTED".to_string());
             }
             _ => {}
         }
@@ -307,6 +343,7 @@ impl App {
                 let table_name = table.name.clone();
                 self.content.set_content_type(ContentType::TableData);
                 self.content.set_content("正在加载表数据...".to_string());
+                self.content.reset_data_scroll(); // 重置数据滚动位置
                 if let Err(e) = self.load_table_data(table_name, 10).await {
                     self.content.set_content_type(ContentType::Error);
                     self.content.set_content(format!("加载表数据失败: {}", e));
@@ -353,7 +390,7 @@ impl App {
             self.current_db = None;
             self.status_bar.set_current_db(None);
             self.content.set_content_type(ContentType::Welcome);
-            self.content.set_content("MYSQL CLIENT v1.0 - READY\n\n[INSTRUCTIONS]\n- Use Up/Down keys to navigate\n- Press Enter to view table structure\n- Press Space to view table data (10 rows)\n- Type commands or SQL in bottom input\n- Press 'q' to exit\n\n[STATUS] CONNECTED".to_string());
+            self.content.set_content("MYSQL CLIENT v1.0 - READY\n\n[INSTRUCTIONS]\n- Use Up/Down keys to navigate\n- Press Enter to view table structure\n- Press Space to view table data (10 rows)\n- Press ':' to enter SQL edit mode\n- Press 'q' to exit\n\n[STATUS] CONNECTED".to_string());
         }
         Ok(())
     }
@@ -367,10 +404,13 @@ impl App {
             return Ok(());
         }
 
+        // 检查是否是USE命令
+        if let Some(db_name) = self.parse_use_command(&command) {
+            self.handle_use_database(db_name).await?;
+            return Ok(());
+        }
+
         match command.as_str() {
-            "\\q" | "\\quit" => {
-                return Ok(());
-            }
             "\\h" | "\\help" => {
                 self.content.set_content_type(ContentType::Help);
                 self.content.set_content(self.get_help_content());
@@ -502,6 +542,48 @@ impl App {
         Ok(())
     }
 
+    fn parse_use_command(&self, command: &str) -> Option<String> {
+        let trimmed = command.trim();
+        if trimmed.to_uppercase().starts_with("USE ") {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let db_name = parts[1].trim_end_matches(';');
+                return Some(db_name.to_string());
+            }
+        }
+        None
+    }
+
+    async fn handle_use_database(&mut self, db_name: String) -> Result<()> {
+        // 检查数据库是否存在
+        let databases = self.db_queries.get_databases().await?;
+        if !databases.iter().any(|db| db.name == db_name) {
+            self.content.set_content_type(ContentType::Error);
+            self.content.set_content(format!("数据库 '{}' 不存在", db_name));
+            return Ok(());
+        }
+
+        // 切换数据库
+        self.current_db = Some(db_name.clone());
+        self.status_bar.set_current_db(Some(db_name.clone()));
+        self.sidebar.set_show_databases(false);
+        self.sidebar.set_current_db(Some(db_name.clone()));
+        
+        // 加载新数据库的表
+        self.content.set_content_type(ContentType::Database);
+        self.content.set_content(format!("已切换到数据库 '{}'，正在加载表...", db_name));
+        
+        if let Err(e) = self.load_tables().await {
+            self.content.set_content_type(ContentType::Error);
+            self.content.set_content(format!("加载表列表失败: {}", e));
+        } else {
+            self.content.set_content_type(ContentType::Database);
+            self.content.set_content(format!("已切换到数据库 '{}'，共 {} 个表", db_name, self.sidebar.get_tables_count()));
+        }
+        
+        Ok(())
+    }
+
     fn get_help_content(&self) -> String {
         "帮助信息:\n\n\
         导航:\n\
@@ -513,14 +595,20 @@ impl App {
         - d: 查看数据库详情\n\
         - t: 查看表详情\n\
         - s: 切换数据库\n\
-        - \\: 进入 SQL 模式\n\
+        - : 进入 SQL 编辑模式\n\
         - q: 退出程序\n\n\
-        SQL 模式:\n\
+        SQL 编辑模式:\n\
         - 输入 SQL 查询语句\n\
         - Enter 执行查询\n\
-        - \\q 退出 SQL 模式\n\n\
+        - Tab 添加缩进(4个空格)\n\
+        - USE database 切换数据库\n\
+        - Esc 退出 SQL 编辑模式\n\n\
         表结构模式:\n\
         - Up/Down: 滚动查看字段\n\
+        - Esc: 返回表列表\n\n\
+        表数据模式:\n\
+        - Up/Down: 垂直滚动查看行\n\
+        - Left/Right: 水平滚动查看列\n\
         - Esc: 返回表列表".to_string()
     }
 }

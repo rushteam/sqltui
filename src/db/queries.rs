@@ -53,31 +53,19 @@ impl DatabaseQueries {
             .fetch_all(&self.pool)
             .await?;
             
-        println!("DEBUG: Found {} databases", rows.len());
         let mut databases = Vec::new();
         
         for row in rows {
-            // 尝试直接获取 String，如果失败再使用 Vec<u8>
-            let db_name = match row.try_get::<String, _>(0) {
-                Ok(name) => {
-                    println!("DEBUG: Got database name as String: {}", name);
-                    name
-                },
-                Err(e) => {
-                    // 如果 String 失败，尝试 Vec<u8>
-                    let name = String::from_utf8_lossy(&row.get::<Vec<u8>, _>(0)).to_string();
-                    println!("DEBUG: Got database name as Vec<u8>: {} (String error: {})", name, e);
-                    name
-                }
-            };
+            // 安全地获取数据库名称，处理不同的数据类型
+            let db_name = self.get_cell_value_as_string(&row, 0)?;
             
             // 跳过系统数据库
-            // if db_name == "information_schema" || 
-            //    db_name == "performance_schema" || 
-            //    db_name == "mysql" || 
-            //    db_name == "sys" {
-            //     continue;
-            // }
+            if db_name == "information_schema" || 
+               db_name == "performance_schema" || 
+               db_name == "mysql" || 
+               db_name == "sys" {
+                continue;
+            }
             
             // 尝试获取表数量（可能失败，但不影响基本功能）
             let table_count = self.get_table_count_simple(&db_name).await.ok();
@@ -388,8 +376,14 @@ impl DatabaseQueries {
         }
         
         if let Ok(value) = row.try_get::<Vec<u8>, _>(index) {
-            // 处理BLOB/BINARY类型
-            return Ok(format!("<BLOB:{} bytes>", value.len()));
+            // 尝试将Vec<u8>转换为字符串
+            match String::from_utf8(value.clone()) {
+                Ok(s) => return Ok(s),
+                Err(_) => {
+                    // 如果UTF-8转换失败，使用lossy转换
+                    return Ok(String::from_utf8_lossy(&value).to_string());
+                }
+            }
         }
         
         if let Ok(value) = row.try_get::<serde_json::Value, _>(index) {

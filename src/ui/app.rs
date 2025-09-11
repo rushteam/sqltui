@@ -395,25 +395,29 @@ impl App {
         Ok(())
     }
 
-    async fn handle_sql_command(&mut self) -> Result<()> {
+    async fn handle_sql_command(&mut self) -> Result<bool> {
         let command = self.input.get_input().to_string();
         self.input.clear();
         self.input.set_mode(InputMode::Command);
 
         if command.trim().is_empty() {
-            return Ok(());
+            return Ok(false);
         }
 
         // 检查是否是USE命令
         if let Some(db_name) = self.parse_use_command(&command) {
             self.handle_use_database(db_name).await?;
-            return Ok(());
+            return Ok(false);
         }
 
         match command.as_str() {
             "\\h" | "\\help" => {
                 self.content.set_content_type(ContentType::Help);
                 self.content.set_content(self.get_help_content());
+            }
+            "exit" | "quit" | "\\q" | "\\quit" => {
+                // 退出程序
+                return Ok(());
             }
             _ => {
                 // 执行 SQL 查询

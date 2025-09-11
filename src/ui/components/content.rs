@@ -24,6 +24,7 @@ pub struct Content {
     schema_columns: Vec<SchemaColumn>,
     table_comment: Option<String>,
     current_table_name: Option<String>,
+    schema_scroll_offset: usize,
 }
 
 impl Content {
@@ -36,6 +37,7 @@ impl Content {
             schema_columns: Vec::new(),
             table_comment: None,
             current_table_name: None,
+            schema_scroll_offset: 0,
         }
     }
 
@@ -67,6 +69,26 @@ impl Content {
         &self.content_type
     }
 
+    pub fn scroll_schema_up(&mut self) {
+        if self.schema_scroll_offset > 0 {
+            self.schema_scroll_offset -= 1;
+        }
+    }
+
+    pub fn scroll_schema_down(&mut self) {
+        self.schema_scroll_offset += 1;
+    }
+
+    pub fn can_scroll_schema(&self, available_height: usize) -> bool {
+        let total_rows = self.schema_columns.len();
+        let max_rows = available_height.saturating_sub(3); // 减去边框和表头高度
+        total_rows > max_rows
+    }
+
+    pub fn reset_schema_scroll(&mut self) {
+        self.schema_scroll_offset = 0;
+    }
+
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         let block = Block::default()
             .borders(Borders::ALL)
@@ -95,15 +117,26 @@ impl Content {
     }
 
     fn render_table_schema(&mut self, frame: &mut Frame, area: Rect) {
-        // 标题 - 显示实际的表名
+        // 计算可显示的行数
+        let available_height = area.height as usize;
+        let total_rows = self.schema_columns.len();
+        let max_rows = available_height.saturating_sub(3); // 减去边框和表头高度
+        
+        // 根据是否需要滚动来显示不同的标题
+        let scroll_hint = if total_rows > max_rows {
+            " (↑↓滚动)"
+        } else {
+            ""
+        };
+        
         let title = if let Some(v) = &self.current_table_name {
             if !v.is_empty() {
-                format!("表结构 - {}", v)
+                format!("表结构 - {}{}", v, scroll_hint)
             } else {
-                "表结构".to_string()
+                format!("表结构{}", scroll_hint)
             }
         } else {
-            "表结构".to_string()
+            format!("表结构{}", scroll_hint)
         };
 
         // 创建主框
@@ -124,10 +157,31 @@ impl Content {
         // 渲染主框
         frame.render_widget(main_block, area);
 
-        // 表格
+        // 计算可显示的行数
+        let available_height = chunks[0].height as usize;
+        let header_height = 1; // 表头占1行
+        let max_rows = available_height.saturating_sub(header_height);
+
+        // 限制滚动偏移量
+        if self.schema_scroll_offset >= total_rows {
+            self.schema_scroll_offset = total_rows.saturating_sub(1);
+        }
+        
+        // 如果内容不需要滚动，重置滚动位置
+        if !self.can_scroll_schema(available_height) {
+            self.schema_scroll_offset = 0;
+        }
+
+        // 计算要显示的行范围
+        let start_idx = self.schema_scroll_offset;
+        let end_idx = (start_idx + max_rows).min(total_rows);
+
+        // 创建要显示的行
         let rows: Vec<ratatui::widgets::Row> = self.schema_columns
             .iter()
-            .map(|col| {
+            .enumerate()
+            .filter(|(idx, _)| *idx >= start_idx && *idx < end_idx)
+            .map(|(_, col)| {
                 let nullable = if col.is_nullable { "YES" } else { "NO" };
                 let default = col.default_value.as_deref().unwrap_or("");
                 let extra = col.extra.as_deref().unwrap_or("");

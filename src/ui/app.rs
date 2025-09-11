@@ -185,10 +185,20 @@ impl App {
                 self.handle_escape().await?;
             }
             KeyCode::Up => {
-                self.sidebar.previous_item();
+                // 如果在表结构模式下，优先处理表结构滚动
+                if matches!(self.content.get_content_type(), ContentType::TableSchema) {
+                    self.content.scroll_schema_up();
+                } else {
+                    self.sidebar.previous_item();
+                }
             }
             KeyCode::Down => {
-                self.sidebar.next_item();
+                // 如果在表结构模式下，优先处理表结构滚动
+                if matches!(self.content.get_content_type(), ContentType::TableSchema) {
+                    self.content.scroll_schema_down();
+                } else {
+                    self.sidebar.next_item();
+                }
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
                 if self.input.get_mode() == &InputMode::SQL {
@@ -272,6 +282,7 @@ impl App {
                 let table_name = table.name.clone();
                 self.content.set_content_type(ContentType::TableSchema);
                 self.content.set_content("正在加载表结构...".to_string());
+                self.content.reset_schema_scroll(); // 重置滚动位置
                 if let Err(e) = self.load_table_schema(table_name).await {
                     self.content.set_content_type(ContentType::Error);
                     self.content.set_content(format!("加载表结构失败: {}", e));

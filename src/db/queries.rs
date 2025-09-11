@@ -324,4 +324,79 @@ impl DatabaseQueries {
 
         Ok(results)
     }
+
+    pub async fn execute_query_raw(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>)> {
+        let rows = sqlx::query(query)
+            .fetch_all(&self.pool)
+            .await?;
+
+        if rows.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        // 获取列名
+        let headers: Vec<String> = rows[0]
+            .columns()
+            .iter()
+            .map(|col| col.name().to_string())
+            .collect();
+
+        // 获取数据行
+        let mut data_rows = Vec::new();
+        for row in rows {
+            let mut row_data = Vec::new();
+            for i in 0..row.columns().len() {
+                let value = self.get_cell_value_as_string(&row, i)?;
+                row_data.push(value);
+            }
+            data_rows.push(row_data);
+        }
+
+        Ok((headers, data_rows))
+    }
+
+    fn get_cell_value_as_string(&self, row: &sqlx::mysql::MySqlRow, index: usize) -> Result<String> {
+        use sqlx::Row;
+        
+        // 尝试不同的数据类型
+        if let Ok(value) = row.try_get::<String, _>(index) {
+            return Ok(value);
+        }
+        
+        if let Ok(value) = row.try_get::<i64, _>(index) {
+            return Ok(value.to_string());
+        }
+        
+        if let Ok(value) = row.try_get::<f64, _>(index) {
+            return Ok(value.to_string());
+        }
+        
+        if let Ok(value) = row.try_get::<bool, _>(index) {
+            return Ok(if value { "1".to_string() } else { "0".to_string() });
+        }
+        
+        if let Ok(value) = row.try_get::<chrono::NaiveDateTime, _>(index) {
+            return Ok(value.format("%Y-%m-%d %H:%M:%S").to_string());
+        }
+        
+        if let Ok(value) = row.try_get::<chrono::NaiveDate, _>(index) {
+            return Ok(value.format("%Y-%m-%d").to_string());
+        }
+        
+        if let Ok(value) = row.try_get::<chrono::NaiveTime, _>(index) {
+            return Ok(value.format("%H:%M:%S").to_string());
+        }
+        
+        if let Ok(value) = row.try_get::<Vec<u8>, _>(index) {
+            // 处理BLOB/BINARY类型
+            return Ok(format!("<BLOB:{} bytes>", value.len()));
+        }
+        
+        if let Ok(value) = row.try_get::<serde_json::Value, _>(index) {
+            return Ok(value.to_string());
+        }
+        
+        // 如果所有类型都失败，返回NULL
+        Ok("NULL".to_string())
+    }
 }

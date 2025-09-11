@@ -202,7 +202,7 @@ impl App {
                     self.sidebar.next_item();
                 }
             }
-            KeyCode::Enter | KeyCode::Char(' ') => {
+            KeyCode::Enter => {
                 if self.input.get_mode() == &InputMode::SQL {
                     if let Err(e) = self.handle_sql_command().await {
                         // SQL 执行失败时显示错误，但不退出程序
@@ -211,6 +211,13 @@ impl App {
                     }
                 } else {
                     self.handle_enter().await?;
+                }
+            }
+            KeyCode::Char(' ') => {
+                if self.input.get_mode() == &InputMode::SQL {
+                    self.input.add_char(' ');
+                } else {
+                    self.handle_space().await?;
                 }
             }
             KeyCode::Char('d') => {
@@ -257,7 +264,7 @@ impl App {
                 self.current_db = None;
                 self.status_bar.set_current_db(None);
                 self.content.set_content_type(ContentType::Welcome);
-                self.content.set_content("MYSQL CLIENT v1.0 - READY\n\n[INSTRUCTIONS]\n- Use Up/Down keys to navigate\n- Press Enter to select database/table\n- Type commands or SQL in bottom input\n- Press 'q' to exit\n\n[STATUS] CONNECTED".to_string());
+                self.content.set_content("MYSQL CLIENT v1.0 - READY\n\n[INSTRUCTIONS]\n- Use Up/Down keys to navigate\n- Press Enter to view table structure\n- Press Space to view table data (10 rows)\n- Type commands or SQL in bottom input\n- Press 'q' to exit\n\n[STATUS] CONNECTED".to_string());
             }
             _ => {}
         }
@@ -288,6 +295,21 @@ impl App {
                 if let Err(e) = self.load_table_schema(table_name).await {
                     self.content.set_content_type(ContentType::Error);
                     self.content.set_content(format!("加载表结构失败: {}", e));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_space(&mut self) -> Result<()> {
+        if !self.sidebar.get_show_databases() {
+            if let Some(table) = self.sidebar.get_selected_table() {
+                let table_name = table.name.clone();
+                self.content.set_content_type(ContentType::TableData);
+                self.content.set_content("正在加载表数据...".to_string());
+                if let Err(e) = self.load_table_data(table_name, 10).await {
+                    self.content.set_content_type(ContentType::Error);
+                    self.content.set_content(format!("加载表数据失败: {}", e));
                 }
             }
         }
@@ -331,7 +353,7 @@ impl App {
             self.current_db = None;
             self.status_bar.set_current_db(None);
             self.content.set_content_type(ContentType::Welcome);
-            self.content.set_content("MYSQL CLIENT v1.0 - READY\n\n[INSTRUCTIONS]\n- Use Up/Down keys to navigate\n- Press Enter to select database/table\n- Type commands or SQL in bottom input\n- Press 'q' to exit\n\n[STATUS] CONNECTED".to_string());
+            self.content.set_content("MYSQL CLIENT v1.0 - READY\n\n[INSTRUCTIONS]\n- Use Up/Down keys to navigate\n- Press Enter to view table structure\n- Press Space to view table data (10 rows)\n- Type commands or SQL in bottom input\n- Press 'q' to exit\n\n[STATUS] CONNECTED".to_string());
         }
         Ok(())
     }
@@ -435,6 +457,27 @@ impl App {
         Ok(())
     }
 
+    async fn load_table_data(&mut self, table_name: String, limit: usize) -> Result<()> {
+        if let Some(db_name) = &self.current_db {
+            let query = format!("SELECT * FROM `{}`.`{}` LIMIT {}", db_name, table_name, limit);
+            match self.db_queries.execute_query_raw(&query).await {
+                Ok((headers, rows)) => {
+                    if rows.is_empty() {
+                        self.content.set_content_type(ContentType::TableData);
+                        self.content.set_content("表为空，没有数据".to_string());
+                    } else {
+                        self.content.set_table_data(headers, rows);
+                    }
+                }
+                Err(e) => {
+                    self.content.set_content_type(ContentType::Error);
+                    self.content.set_content(format!("加载表数据失败: {}", e));
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn load_mysql_version(&mut self) -> Result<()> {
         match self.db_queries.get_mysql_version().await {
             Ok(version) => {
@@ -463,7 +506,8 @@ impl App {
         "帮助信息:\n\n\
         导航:\n\
         - Up/Down: 上下移动选择项\n\
-        - Enter: 选择当前项\n\
+        - Enter: 查看表结构\n\
+        - Space: 查看表数据(前10行)\n\
         - Esc: 返回上一级\n\n\
         快捷键:\n\
         - d: 查看数据库详情\n\
@@ -474,6 +518,9 @@ impl App {
         SQL 模式:\n\
         - 输入 SQL 查询语句\n\
         - Enter 执行查询\n\
-        - \\q 退出 SQL 模式".to_string()
+        - \\q 退出 SQL 模式\n\n\
+        表结构模式:\n\
+        - Up/Down: 滚动查看字段\n\
+        - Esc: 返回表列表".to_string()
     }
 }

@@ -79,6 +79,7 @@ impl Content {
         self.schema_scroll_offset += 1;
     }
 
+
     pub fn can_scroll_schema(&self, available_height: usize) -> bool {
         let total_rows = self.schema_columns.len();
         let max_rows = available_height.saturating_sub(3); // 减去边框和表头高度
@@ -162,14 +163,15 @@ impl Content {
         let header_height = 1; // 表头占1行
         let max_rows = available_height.saturating_sub(header_height);
 
-        // 限制滚动偏移量
-        if self.schema_scroll_offset >= total_rows {
-            self.schema_scroll_offset = total_rows.saturating_sub(1);
-        }
-        
         // 如果内容不需要滚动，重置滚动位置
         if !self.can_scroll_schema(available_height) {
             self.schema_scroll_offset = 0;
+        } else {
+            // 限制滚动偏移量，确保不会滚动超出范围
+            let max_scroll = total_rows.saturating_sub(max_rows);
+            if self.schema_scroll_offset > max_scroll {
+                self.schema_scroll_offset = max_scroll;
+            }
         }
 
         // 计算要显示的行范围

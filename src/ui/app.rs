@@ -195,6 +195,8 @@ impl App {
             KeyCode::Down => {
                 // 如果在表结构模式下，优先处理表结构滚动
                 if matches!(self.content.get_content_type(), ContentType::TableSchema) {
+                    // 这里我们使用一个估算的高度值，实际限制会在render时进行
+                    // 由于render方法会自动限制滚动位置，这里直接调用滚动方法
                     self.content.scroll_schema_down();
                 } else {
                     self.sidebar.next_item();

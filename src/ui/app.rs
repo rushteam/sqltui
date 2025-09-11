@@ -191,7 +191,7 @@ impl App {
             KeyCode::Down => {
                 self.sidebar.next_item();
             }
-            KeyCode::Enter => {
+            KeyCode::Enter | KeyCode::Char(' ') => {
                 if self.input.get_mode() == &InputMode::SQL {
                     if let Err(e) = self.handle_sql_command().await {
                         // SQL 执行失败时显示错误，但不退出程序

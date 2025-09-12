@@ -189,12 +189,48 @@ impl App {
                         }
                     }
                 }
+                KeyCode::Up => {
+                    // 上箭头键：历史记录向上
+                    if let Some(history_command) = self.input.get_history_up() {
+                        self.input.clear();
+                        for ch in history_command.chars() {
+                            self.input.add_char(ch);
+                        }
+                    }
+                }
+                KeyCode::Down => {
+                    // 下箭头键：历史记录向下
+                    if let Some(history_command) = self.input.get_history_down() {
+                        self.input.clear();
+                        for ch in history_command.chars() {
+                            self.input.add_char(ch);
+                        }
+                    } else {
+                        // 如果到达历史记录末尾，清空输入
+                        self.input.clear();
+                    }
+                }
                 KeyCode::Tab => {
-                    // TAB键添加4个空格用于缩进
-                    self.input.add_char(' ');
-                    self.input.add_char(' ');
-                    self.input.add_char(' ');
-                    self.input.add_char(' ');
+                    // TAB键：自动补全
+                    let current_input = self.input.get_input().to_string();
+                    let suggestions = self.input.get_autocomplete_suggestions(&current_input);
+                    if !suggestions.is_empty() {
+                        // 使用第一个建议进行补全
+                        let suggestion = &suggestions[0];
+                        let current_words: Vec<&str> = current_input.split_whitespace().collect();
+                        if let Some(last_word) = current_words.last() {
+                            let remaining = suggestion.strip_prefix(last_word).unwrap_or("");
+                            for ch in remaining.chars() {
+                                self.input.add_char(ch);
+                            }
+                        }
+                    } else {
+                        // 如果没有建议，添加4个空格用于缩进
+                        self.input.add_char(' ');
+                        self.input.add_char(' ');
+                        self.input.add_char(' ');
+                        self.input.add_char(' ');
+                    }
                 }
                 KeyCode::Char(ch) => {
                     self.input.add_char(ch);
@@ -281,10 +317,14 @@ impl App {
             KeyCode::Char('s') => {
                 self.handle_switch_database().await?;
             }
-            KeyCode::Char(':') => {
-                // 进入SQL模式
-                self.input.set_mode(InputMode::SQL);
-            }
+                KeyCode::Char(':') => {
+                    // 进入SQL模式
+                    self.input.set_mode(InputMode::SQL);
+                    // 更新当前数据库信息
+                    self.input.set_current_db(self.current_db.clone());
+                    // 重置历史记录索引
+                    self.input.reset_history_index();
+                }
             _ => {}
         }
         Ok(false)
@@ -413,6 +453,10 @@ impl App {
 
     async fn handle_sql_command(&mut self) -> Result<bool> {
         let command = self.input.get_input().to_string();
+        
+        // 添加到历史记录
+        self.input.add_to_history(command.clone());
+        
         self.input.clear();
         self.input.set_mode(InputMode::Command);
 
@@ -599,6 +643,9 @@ impl App {
         self.status_bar.set_current_db(Some(db_name.clone()));
         self.sidebar.set_show_databases(false);
         self.sidebar.set_current_db(Some(db_name.clone()));
+        
+        // 更新输入组件的数据库信息
+        self.input.set_current_db(Some(db_name.clone()));
         
         // 加载新数据库的表
         self.content.set_content_type(ContentType::Database);

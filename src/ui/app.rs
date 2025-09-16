@@ -211,29 +211,47 @@ impl App {
                     }
                 }
                 KeyCode::Tab => {
-                    // TAB键：自动补全
-                    let current_input = self.input.get_input().to_string();
-                    let suggestions = self.input.get_autocomplete_suggestions(&current_input);
-                    if !suggestions.is_empty() {
-                        // 使用第一个建议进行补全
-                        let suggestion = &suggestions[0];
-                        let current_words: Vec<&str> = current_input.split_whitespace().collect();
-                        if let Some(last_word) = current_words.last() {
-                            let remaining = suggestion.strip_prefix(last_word).unwrap_or("");
-                            for ch in remaining.chars() {
-                                self.input.add_char(ch);
+                    // TAB键：切换建议显示或自动补全
+                    if self.input.is_showing_suggestions() {
+                        // 如果正在显示建议，使用当前选中的建议
+                        if let Some(suggestion) = self.input.get_current_suggestion() {
+                            let current_input = self.input.get_input().to_string();
+                            let words: Vec<&str> = current_input.split_whitespace().collect();
+                            if let Some(last_word) = words.last() {
+                                let remaining = suggestion.strip_prefix(last_word).unwrap_or("");
+                                for ch in remaining.chars() {
+                                    self.input.add_char(ch);
+                                }
+                            } else {
+                                for ch in suggestion.chars() {
+                                    self.input.add_char(ch);
+                                }
+                                self.input.add_char(' ');
                             }
                         }
+                        self.input.hide_suggestions();
                     } else {
-                        // 如果没有建议，添加4个空格用于缩进
-                        self.input.add_char(' ');
-                        self.input.add_char(' ');
-                        self.input.add_char(' ');
-                        self.input.add_char(' ');
+                        // 显示建议
+                        self.input.toggle_suggestions();
+                    }
+                }
+                KeyCode::Right => {
+                    // 右箭头键：下一个建议
+                    if self.input.is_showing_suggestions() {
+                        self.input.next_suggestion();
+                    }
+                    // 在SQL模式下，右箭头键不添加空格，让用户直接输入
+                }
+                KeyCode::Left => {
+                    // 左箭头键：上一个建议
+                    if self.input.is_showing_suggestions() {
+                        self.input.prev_suggestion();
                     }
                 }
                 KeyCode::Char(ch) => {
                     self.input.add_char(ch);
+                    // 输入字符时隐藏建议
+                    self.input.hide_suggestions();
                 }
                 KeyCode::Backspace => {
                     self.input.delete_char();
@@ -306,7 +324,12 @@ impl App {
                 self.handle_enter().await?;
             }
             KeyCode::Char(' ') => {
-                self.handle_space().await?;
+                // 在SQL模式下，空格键直接添加到输入中
+                if self.input.get_mode() == &InputMode::SQL {
+                    self.input.add_char(' ');
+                } else {
+                    self.handle_space().await?;
+                }
             }
             KeyCode::Char('d') => {
                 self.handle_database_detail().await?;

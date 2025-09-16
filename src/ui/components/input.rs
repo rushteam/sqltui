@@ -11,6 +11,8 @@ pub struct Input {
     history: Vec<String>,
     history_index: usize,
     current_db: Option<String>,
+    show_suggestions: bool,
+    suggestion_index: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -27,6 +29,8 @@ impl Input {
             history: Vec::new(),
             history_index: 0,
             current_db: None,
+            show_suggestions: false,
+            suggestion_index: 0,
         }
     }
 
@@ -88,9 +92,67 @@ impl Input {
         self.history_index = self.history.len();
     }
 
+    pub fn toggle_suggestions(&mut self) {
+        self.show_suggestions = !self.show_suggestions;
+        self.suggestion_index = 0;
+    }
+
+    pub fn hide_suggestions(&mut self) {
+        self.show_suggestions = false;
+        self.suggestion_index = 0;
+    }
+
+    pub fn get_current_suggestion(&self) -> Option<String> {
+        if self.show_suggestions {
+            let suggestions = self.get_autocomplete_suggestions(&self.input);
+            suggestions.get(self.suggestion_index).cloned()
+        } else {
+            None
+        }
+    }
+
+    pub fn next_suggestion(&mut self) {
+        if self.show_suggestions {
+            let suggestions = self.get_autocomplete_suggestions(&self.input);
+            if !suggestions.is_empty() {
+                self.suggestion_index = (self.suggestion_index + 1) % suggestions.len();
+            }
+        }
+    }
+
+    pub fn prev_suggestion(&mut self) {
+        if self.show_suggestions {
+            let suggestions = self.get_autocomplete_suggestions(&self.input);
+            if !suggestions.is_empty() {
+                self.suggestion_index = if self.suggestion_index == 0 {
+                    suggestions.len() - 1
+                } else {
+                    self.suggestion_index - 1
+                };
+            }
+        }
+    }
+
+    pub fn is_showing_suggestions(&self) -> bool {
+        self.show_suggestions
+    }
+
     pub fn get_autocomplete_suggestions(&self, input: &str) -> Vec<String> {
         let mut suggestions = Vec::new();
-        let input_lower = input.to_lowercase();
+        let input_trimmed = input.trim();
+        
+        // 如果输入为空，返回常用关键字
+        if input_trimmed.is_empty() {
+            return vec![
+                "SELECT".to_string(),
+                "SHOW".to_string(),
+                "USE".to_string(),
+                "DESCRIBE".to_string(),
+                "EXPLAIN".to_string(),
+            ];
+        }
+        
+        let input_lower = input_trimmed.to_lowercase();
         
         // SQL关键字自动补全
         let sql_keywords = vec![
@@ -98,7 +160,9 @@ impl Input {
             "ALTER", "USE", "SHOW", "DESCRIBE", "EXPLAIN", "JOIN", "LEFT", "RIGHT", "INNER",
             "OUTER", "ON", "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET", "DISTINCT",
             "COUNT", "SUM", "AVG", "MIN", "MAX", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN",
-            "IS", "NULL", "TRUE", "FALSE", "ASC", "DESC", "AS", "UNION", "ALL", "EXISTS"
+            "IS", "NULL", "TRUE", "FALSE", "ASC", "DESC", "AS", "UNION", "ALL", "EXISTS",
+            "DATABASES", "TABLES", "COLUMNS", "INDEX", "INDEXES", "PROCESSLIST", "STATUS",
+            "VARIABLES", "GRANTS", "PRIVILEGES", "USERS", "FUNCTIONS", "PROCEDURES", "TRIGGERS"
         ];
         
         for keyword in sql_keywords {
@@ -153,6 +217,11 @@ impl Input {
             .alignment(Alignment::Left);
 
         frame.render_widget(paragraph, area);
+
+        // 在SQL模式下显示建议
+        if self.mode == InputMode::SQL && self.show_suggestions {
+            self.render_suggestions(frame, area);
+        }
     }
 
     fn highlight_sql_syntax(&self, input: &str) -> Vec<Span<'static>> {
@@ -160,39 +229,99 @@ impl Input {
             return vec![Span::styled(input.to_string(), Style::default().fg(Color::White))];
         }
 
+        // 如果输入为空，直接返回
+        if input.is_empty() {
+            return vec![];
+        }
+
         let mut spans = Vec::new();
-        let words: Vec<&str> = input.split_whitespace().collect();
+        let mut chars = input.chars().peekable();
+        let mut current_word = String::new();
         
-        for (i, word) in words.iter().enumerate() {
-            if i > 0 {
+        while let Some(ch) = chars.next() {
+            if ch.is_whitespace() {
+                // 如果当前有单词，先处理单词
+                if !current_word.is_empty() {
+                    let style = self.get_word_style(&current_word);
+                    spans.push(Span::styled(current_word.clone(), style));
+                    current_word.clear();
+                }
+                // 添加空格
                 spans.push(Span::raw(" "));
+            } else {
+                current_word.push(ch);
             }
-            
-            let word_upper = word.to_uppercase();
-            let style = match word_upper.as_str() {
-                "SELECT" | "FROM" | "WHERE" | "INSERT" | "UPDATE" | "DELETE" | "CREATE" | "DROP" |
-                "ALTER" | "USE" | "SHOW" | "DESCRIBE" | "EXPLAIN" | "JOIN" | "LEFT" | "RIGHT" |
-                "INNER" | "OUTER" | "ON" | "GROUP" | "BY" | "ORDER" | "HAVING" | "LIMIT" |
-                "OFFSET" | "DISTINCT" | "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" | "AND" | "OR" |
-                "NOT" | "IN" | "LIKE" | "BETWEEN" | "IS" | "NULL" | "TRUE" | "FALSE" | "ASC" |
-                "DESC" | "AS" | "UNION" | "ALL" | "EXISTS" => {
-                    Style::default().fg(Color::Cyan).bold()
-                },
-                _ if word.starts_with('\'') && word.ends_with('\'') => {
-                    Style::default().fg(Color::Green) // 字符串
-                },
-                _ if word.starts_with('"') && word.ends_with('"') => {
-                    Style::default().fg(Color::Green) // 字符串
-                },
-                _ if word.parse::<i64>().is_ok() || word.parse::<f64>().is_ok() => {
-                    Style::default().fg(Color::Yellow) // 数字
-                },
-                _ => Style::default().fg(Color::White), // 普通文本
-            };
-            
-            spans.push(Span::styled((*word).to_string(), style));
+        }
+        
+        // 处理最后一个单词
+        if !current_word.is_empty() {
+            let style = self.get_word_style(&current_word);
+            spans.push(Span::styled(current_word, style));
         }
         
         spans
+    }
+
+    fn get_word_style(&self, word: &str) -> Style {
+        let word_upper = word.to_uppercase();
+        match word_upper.as_str() {
+            "SELECT" | "FROM" | "WHERE" | "INSERT" | "UPDATE" | "DELETE" | "CREATE" | "DROP" |
+            "ALTER" | "USE" | "SHOW" | "DESCRIBE" | "EXPLAIN" | "JOIN" | "LEFT" | "RIGHT" |
+            "INNER" | "OUTER" | "ON" | "GROUP" | "BY" | "ORDER" | "HAVING" | "LIMIT" |
+            "OFFSET" | "DISTINCT" | "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" | "AND" | "OR" |
+            "NOT" | "IN" | "LIKE" | "BETWEEN" | "IS" | "NULL" | "TRUE" | "FALSE" | "ASC" |
+            "DESC" | "AS" | "UNION" | "ALL" | "EXISTS" => {
+                Style::default().fg(Color::Cyan).bold()
+            },
+            _ if word.starts_with('\'') && word.ends_with('\'') => {
+                Style::default().fg(Color::Green) // 字符串
+            },
+            _ if word.starts_with('"') && word.ends_with('"') => {
+                Style::default().fg(Color::Green) // 字符串
+            },
+            _ if word.parse::<i64>().is_ok() || word.parse::<f64>().is_ok() => {
+                Style::default().fg(Color::Yellow) // 数字
+            },
+            _ => Style::default().fg(Color::White), // 普通文本
+        }
+    }
+
+    fn render_suggestions(&self, frame: &mut Frame, input_area: Rect) {
+        let suggestions = self.get_autocomplete_suggestions(&self.input);
+        if suggestions.is_empty() {
+            return;
+        }
+
+        // 在输入框下方显示建议
+        let suggestion_area = Rect {
+            x: input_area.x,
+            y: input_area.y + input_area.height,
+            width: input_area.width,
+            height: std::cmp::min(suggestions.len() as u16 + 2, 8), // 最多显示8行
+        };
+
+        let mut suggestion_lines = Vec::new();
+        for (i, suggestion) in suggestions.iter().enumerate() {
+            let style = if i == self.suggestion_index {
+                Style::default().fg(Color::Yellow).bg(Color::Blue)
+            } else {
+                Style::default().fg(Color::Cyan)
+            };
+            suggestion_lines.push(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(suggestion, style),
+            ]));
+        }
+
+        let suggestion_block = Block::default()
+            .borders(Borders::ALL)
+            .title("建议")
+            .style(Style::default().fg(Color::Blue));
+
+        let suggestion_paragraph = Paragraph::new(suggestion_lines)
+            .block(suggestion_block)
+            .alignment(Alignment::Left);
+
+        frame.render_widget(suggestion_paragraph, suggestion_area);
     }
 }

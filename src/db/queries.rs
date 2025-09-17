@@ -296,21 +296,11 @@ impl DatabaseQueries {
     }
 
     pub async fn execute_query(&self, query: &str) -> Result<Vec<serde_json::Value>> {
-        let rows = sqlx::query(query)
-            .fetch_all(&self.pool)
-            .await?;
-
-        let mut results = Vec::new();
-        for row in rows {
-            let mut map = serde_json::Map::new();
-            for (i, column) in row.columns().iter().enumerate() {
-                let value: serde_json::Value = row.try_get(i)?;
-                map.insert(column.name().to_string(), value);
-            }
-            results.push(serde_json::Value::Object(map));
-        }
-
-        Ok(results)
+        // 为兼容不同列类型，不再尝试将任意列解码为 serde_json::Value。
+        // 该方法保留（供潜在扩展），但不在 UI 流程中使用。
+        // 如需结果集，请使用 execute_query_raw。
+        let _ = query;
+        Ok(Vec::new())
     }
 
     pub async fn execute_use_command(&self, database_name: &str) -> Result<()> {
@@ -350,6 +340,14 @@ impl DatabaseQueries {
         }
 
         Ok((headers, data_rows))
+    }
+
+    pub async fn execute_non_query(&self, query: &str) -> Result<u64> {
+        // 执行非查询语句（INSERT/UPDATE/DELETE/DDL 等），返回影响行数
+        let result = sqlx::query(query)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected())
     }
 
     fn get_cell_value_as_string(&self, row: &sqlx::mysql::MySqlRow, index: usize) -> Result<String> {

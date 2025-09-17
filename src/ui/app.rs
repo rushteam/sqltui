@@ -516,41 +516,44 @@ impl App {
                 return Ok(true);
             }
             _ => {
-                // 执行 SQL 查询
-                match self.db_queries.execute_query(&command).await {
-                    Ok(results) => {
-                        if results.is_empty() {
-                            self.content.set_content_type(ContentType::Database);
-                            self.content.set_content("查询执行成功，无结果".to_string());
-                        } else {
-                            // 转换结果为表格格式
-                            let headers: Vec<String> = results[0]
-                                .as_object()
-                                .unwrap()
-                                .keys()
-                                .map(|k| k.clone())
-                                .collect();
-                            
-                            let rows: Vec<Vec<String>> = results
-                                .iter()
-                                .map(|row| {
-                                    headers
-                                        .iter()
-                                        .map(|h| {
-                                            row.get(h)
-                                                .map(|v| v.to_string())
-                                                .unwrap_or_else(|| "NULL".to_string())
-                                        })
-                                        .collect()
-                                })
-                                .collect();
+                // 根据首个关键字判断是查询类还是非查询类
+                let first_word = command
+                    .trim_start()
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_uppercase();
 
-                            self.content.set_table_data(headers, rows);
+                let is_query = matches!(
+                    first_word.as_str(),
+                    "SELECT" | "SHOW" | "DESCRIBE" | "EXPLAIN"
+                );
+
+                if is_query {
+                    match self.db_queries.execute_query_raw(&command).await {
+                        Ok((headers, rows)) => {
+                            if rows.is_empty() {
+                                self.content.set_content_type(ContentType::Database);
+                                self.content.set_content("查询执行成功，无结果".to_string());
+                            } else {
+                                self.content.set_table_data(headers, rows);
+                            }
+                        }
+                        Err(e) => {
+                            self.content.set_content_type(ContentType::Error);
+                            self.content.set_content(format!("SQL 错误: {}", e));
                         }
                     }
-                    Err(e) => {
-                        self.content.set_content_type(ContentType::Error);
-                        self.content.set_content(format!("SQL 错误: {}", e));
+                } else {
+                    match self.db_queries.execute_non_query(&command).await {
+                        Ok(affected) => {
+                            self.content.set_content_type(ContentType::Database);
+                            self.content.set_content(format!("执行成功，受影响行数: {}", affected));
+                        }
+                        Err(e) => {
+                            self.content.set_content_type(ContentType::Error);
+                            self.content.set_content(format!("SQL 错误: {}", e));
+                        }
                     }
                 }
             }

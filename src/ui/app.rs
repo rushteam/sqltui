@@ -494,7 +494,7 @@ impl App {
         self.input.add_to_history(command.clone());
         
         self.input.clear();
-        self.input.set_mode(InputMode::Command);
+        // 保持在 SQL 模式，直到用户按 Esc 主动退出
 
         if command.trim().is_empty() {
             return Ok(false);

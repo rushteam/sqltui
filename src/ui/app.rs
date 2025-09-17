@@ -154,6 +154,11 @@ impl App {
         Ok(())
     }
 
+    fn is_at_root(&self) -> bool {
+        // 根目录：显示数据库列表且为欢迎页面
+        self.sidebar.get_show_databases() && matches!(self.content.get_content_type(), ContentType::Welcome)
+    }
+
     fn ui(&mut self, f: &mut Frame) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -279,8 +284,12 @@ impl App {
         // 在CMD模式下处理所有快捷键
         match key.code {
             KeyCode::Char('q') => {
-                // 按 q 键直接退出
-                return Ok(true);
+                // 仅在根目录退出；其他情况下等价于 Esc 返回上一级
+                if self.is_at_root() {
+                    return Ok(true);
+                } else {
+                    self.handle_escape().await?;
+                }
             }
             KeyCode::Char('c') => {
                 // 只有 Ctrl+C 才退出

@@ -24,7 +24,7 @@ impl DatabaseConnection {
             .execute(&pool)
             .await?;
         
-        info!("Connected to MySQL database");
+        // info!("Connected to MySQL database");
         Ok(Self { pool })
     }
 

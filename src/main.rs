@@ -48,11 +48,11 @@ async fn main() -> Result<()> {
     
     // 获取连接信息
     let (_user, host, port) = config.get_connection_info();
-    info!("正在连接到 MySQL 服务器 {}:{}", host, port);
+    // info!("正在连接到 MySQL 服务器 {}:{}", host, port);
 
     // 创建并运行应用
     let mut app = App::new(config).await?;
-    info!("成功连接到 MySQL 服务器 {}:{}", host, port);
+    // info!("成功连接到 MySQL 服务器 {}:{}", host, port);
     
     // 运行 TUI
     app.run().await?;

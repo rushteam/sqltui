@@ -27,6 +27,8 @@ use crate::ui::components::input::InputMode;
 pub struct App {
     // 数据库相关
     db_queries: DatabaseQueries,
+    // 连接配置（用于重建带数据库名的连接池）
+    config: Config,
     
     // UI 组件
     sidebar: Sidebar,
@@ -47,6 +49,7 @@ impl App {
 
         let mut app = Self {
             db_queries,
+            config: config.clone(),
             sidebar: Sidebar::new(),
             content: Content::new(),
             status_bar: StatusBar::new(),
@@ -60,6 +63,16 @@ impl App {
         app.set_username().await?;
 
         Ok(app)
+    }
+
+    async fn rebuild_pool_for_database(&mut self, database_name: Option<String>) -> Result<()> {
+        // 更新配置中的数据库名
+        self.config.database = database_name;
+        let dsn = self.config.get_dsn();
+        let db_connection = DatabaseConnection::new(&dsn).await?;
+        let pool = db_connection.get_pool().clone();
+        self.db_queries = DatabaseQueries::new(pool);
+        Ok(())
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -388,12 +401,12 @@ impl App {
                 self.content.set_content_type(ContentType::Database);
                 self.content.set_content(format!("正在切换到数据库 '{}'...", db_name));
                 
-                // 执行 USE 命令切换到数据库
-                // if let Err(e) = self.db_queries.execute_use_command(&db_name).await {
-                //     self.content.set_content_type(ContentType::Error);
-                //     self.content.set_content(format!("切换数据库失败: {}", e));
-                //     return Ok(());
-                // }
+                // 重建连接池以设置默认数据库，避免 USE 的预处理限制
+                if let Err(e) = self.rebuild_pool_for_database(Some(db_name.clone())).await {
+                    self.content.set_content_type(ContentType::Error);
+                    self.content.set_content(format!("切换数据库失败: {}", e));
+                    return Ok(());
+                }
                 
                 self.content.set_content(format!("正在加载数据库 '{}' 的表...", db_name));
                 if let Err(e) = self.load_tables().await {
@@ -654,12 +667,12 @@ impl App {
             return Ok(());
         }
 
-        // 执行 USE 命令切换到数据库
-        // if let Err(e) = self.db_queries.execute_use_command(&db_name).await {
-        //     self.content.set_content_type(ContentType::Error);
-        //     self.content.set_content(format!("切换数据库失败: {}", e));
-        //     return Ok(());
-        // }
+        // 重建连接池到目标数据库，避免 USE 的预处理限制
+        if let Err(e) = self.rebuild_pool_for_database(Some(db_name.clone())).await {
+            self.content.set_content_type(ContentType::Error);
+            self.content.set_content(format!("切换数据库失败: {}", e));
+            return Ok(());
+        }
         
         // 切换数据库
         self.current_db = Some(db_name.clone());

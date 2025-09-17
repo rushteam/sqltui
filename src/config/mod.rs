@@ -27,14 +27,25 @@ pub struct Config {
 
 impl Config {
     pub fn get_dsn(&self) -> String {
-        format!(
-            "mysql://{}:{}@{}:{}/{}?charset=utf8mb4&collation=utf8mb4_unicode_ci",
-            self.username,
-            self.password,
-            self.host,
-            self.port,
-            self.database.as_deref().unwrap_or("")
-        )
+        if self.password.is_empty() {
+            // 如果没有密码，不包含密码部分
+            format!(
+                "mysql://{}@{}:{}/{}?charset=utf8mb4&collation=utf8mb4_unicode_ci",
+                self.username,
+                self.host,
+                self.port,
+                self.database.as_deref().unwrap_or("")
+            )
+        } else {
+            format!(
+                "mysql://{}:{}@{}:{}/{}?charset=utf8mb4&collation=utf8mb4_unicode_ci",
+                self.username,
+                self.password,
+                self.host,
+                self.port,
+                self.database.as_deref().unwrap_or("")
+            )
+        }
     }
 
     pub fn get_connection_info(&self) -> (String, String, u16) {

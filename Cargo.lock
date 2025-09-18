@@ -1643,7 +1643,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sqlview-rs"
+name = "sqltui-rs"
 version = "0.1.0"
 dependencies = [
  "anyhow",

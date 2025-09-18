@@ -16,36 +16,6 @@ impl DatabaseQueries {
         self.get_databases_simple().await
     }
     
-    async fn try_get_databases_detailed(&self) -> Result<Vec<Database>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT 
-                SCHEMA_NAME as name,
-                DEFAULT_CHARACTER_SET_NAME as charset,
-                DEFAULT_COLLATION_NAME as collation,
-                (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = SCHEMATA.SCHEMA_NAME) as table_count
-            FROM information_schema.SCHEMATA 
-            WHERE SCHEMA_NAME NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')
-            ORDER BY SCHEMA_NAME
-            "#
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        let databases = rows
-            .into_iter()
-            .map(|row| {
-                Database::with_details(
-                    String::from_utf8_lossy(&row.get::<Vec<u8>, _>("name")).to_string(),
-                    row.get::<Option<String>, _>("charset"),
-                    row.get::<Option<String>, _>("collation"),
-                    Some(row.get::<i64, _>("table_count") as u64),
-                )
-            })
-            .collect();
-
-        Ok(databases)
-    }
     
     async fn get_databases_simple(&self) -> Result<Vec<Database>> {
         // 使用 SHOW DATABASES 作为备选方案
@@ -92,45 +62,6 @@ impl DatabaseQueries {
     pub async fn get_tables(&self, database_name: &str) -> Result<Vec<Table>> {
         // 直接使用 SHOW TABLES（更兼容）
         self.get_tables_simple(database_name).await
-    }
-    
-    async fn try_get_tables_detailed(&self, database_name: &str) -> Result<Vec<Table>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT 
-                TABLE_NAME as name,
-                TABLE_COMMENT as comment,
-                TABLE_ROWS as `rows`,
-                ROUND(((DATA_LENGTH + INDEX_LENGTH) / 1024 / 1024), 2) as size,
-                ENGINE as engine
-            FROM information_schema.TABLES 
-            WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'
-            ORDER BY TABLE_NAME
-            "#
-        )
-        .bind(database_name)
-        .fetch_all(&self.pool)
-        .await?;
-
-        let tables = rows
-            .into_iter()
-            .map(|row| {
-                let comment: String = String::from_utf8_lossy(&row.get::<Vec<u8>, _>("comment")).to_string();
-                let rows: Option<i64> = row.get("rows");
-                let size: Option<f64> = row.get("size");
-                let engine: String = String::from_utf8_lossy(&row.get::<Vec<u8>, _>("engine")).to_string();
-                
-                Table::with_details(
-                    String::from_utf8_lossy(&row.get::<Vec<u8>, _>("name")).to_string(),
-                    if comment.is_empty() { None } else { Some(comment) },
-                    rows.map(|r| r as u64),
-                    size.map(|s| s as u64),
-                    Some(engine),
-                )
-            })
-            .collect();
-
-        Ok(tables)
     }
     
     async fn get_tables_simple(&self, database_name: &str) -> Result<Vec<Table>> {
@@ -293,23 +224,6 @@ impl DatabaseQueries {
             .fetch_one(&self.pool)
             .await?;
         Ok(row.get::<String, _>("user"))
-    }
-
-    pub async fn execute_query(&self, query: &str) -> Result<Vec<serde_json::Value>> {
-        // 为兼容不同列类型，不再尝试将任意列解码为 serde_json::Value。
-        // 该方法保留（供潜在扩展），但不在 UI 流程中使用。
-        // 如需结果集，请使用 execute_query_raw。
-        let _ = query;
-        Ok(Vec::new())
-    }
-
-    pub async fn execute_use_command(&self, database_name: &str) -> Result<()> {
-        // USE 命令不能使用预编译语句，使用 fetch_optional 来执行
-        let sql = format!("USE `{}`", database_name);
-        let _: Option<String> = sqlx::query_scalar(&sql)
-            .fetch_optional(&self.pool)
-            .await?;
-        Ok(())
     }
 
     pub async fn execute_query_raw(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>)> {

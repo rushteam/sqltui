@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tracing::{info, Level};
+use tracing::{Level};
 use tracing_subscriber;
 use crossterm::{
     execute,
@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
     let config = Config::parse();
     
     // 获取连接信息
-    let (_user, host, port) = config.get_connection_info();
+    let (_user, _host, _port) = config.get_connection_info();
     // info!("正在连接到 MySQL 服务器 {}:{}", host, port);
 
     // 创建并运行应用

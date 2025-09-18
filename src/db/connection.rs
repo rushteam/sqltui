@@ -1,6 +1,5 @@
 use anyhow::Result;
 use sqlx::{MySql, Pool};
-use tracing::info;
 
 pub struct DatabaseConnection {
     pool: Pool<MySql>,

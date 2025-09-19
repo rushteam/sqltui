@@ -13,6 +13,8 @@ pub struct Input {
     current_db: Option<String>,
     show_suggestions: bool,
     suggestion_index: usize,
+    // 光标位置（按字符计数，不是字节）
+    cursor_pos: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,6 +33,7 @@ impl Input {
             current_db: None,
             show_suggestions: false,
             suggestion_index: 0,
+            cursor_pos: 0,
         }
     }
 
@@ -48,15 +51,23 @@ impl Input {
     }
 
     pub fn add_char(&mut self, ch: char) {
-        self.input.push(ch);
+        let byte_idx = self.byte_index_for_char_pos(self.cursor_pos);
+        self.input.insert(byte_idx, ch);
+        self.cursor_pos += 1;
     }
 
     pub fn delete_char(&mut self) {
-        self.input.pop();
+        if self.cursor_pos == 0 { return; }
+        let prev_char_pos = self.cursor_pos - 1;
+        let start = self.byte_index_for_char_pos(prev_char_pos);
+        let end = self.byte_index_for_char_pos(self.cursor_pos);
+        self.input.replace_range(start..end, "");
+        self.cursor_pos = prev_char_pos;
     }
 
     pub fn clear(&mut self) {
         self.input.clear();
+        self.cursor_pos = 0;
     }
 
     pub fn set_current_db(&mut self, db_name: Option<String>) {
@@ -194,8 +205,11 @@ impl Input {
             },
         };
 
-        // 语法高亮的输入内容
-        let styled_input = self.highlight_sql_syntax(&self.input);
+        // 语法高亮的输入内容（带光标，反色覆盖当前字符）
+        self.cursor_pos = self.cursor_pos.min(self.input.chars().count());
+        let byte_idx = self.byte_index_for_char_pos(self.cursor_pos);
+        let (before, after) = self.input.split_at(byte_idx);
+        let styled_before = self.highlight_sql_syntax(before);
 
         let mut content_spans = vec![
             Span::styled(mode_text, Style::default().fg(Color::Yellow).bold()),
@@ -203,8 +217,23 @@ impl Input {
             Span::styled(&prompt, Style::default().fg(Color::Green)),
         ];
         
-        content_spans.extend(styled_input);
-        content_spans.push(Span::styled("█", Style::default().fg(Color::White))); // 光标
+        content_spans.extend(styled_before);
+        // 光标覆盖字符：若有字符则反色显示该字符，否则反色空格
+        let mut after_chars = after.chars();
+        if let Some(cursor_ch) = after_chars.next() {
+            content_spans.push(Span::styled(
+                cursor_ch.to_string(),
+                Style::default().add_modifier(Modifier::REVERSED),
+            ));
+            let rest: String = after_chars.collect();
+            let styled_rest = self.highlight_sql_syntax(&rest);
+            content_spans.extend(styled_rest);
+        } else {
+            content_spans.push(Span::styled(
+                " ",
+                Style::default().add_modifier(Modifier::REVERSED),
+            ));
+        }
 
         let content = Line::from(content_spans);
 
@@ -222,6 +251,49 @@ impl Input {
         if self.mode == InputMode::SQL && self.show_suggestions {
             self.render_suggestions(frame, area);
         }
+    }
+
+    // 光标移动与边界
+    pub fn move_cursor_start(&mut self) { self.cursor_pos = 0; }
+    pub fn move_cursor_end(&mut self) { self.cursor_pos = self.input.chars().count(); }
+    pub fn move_cursor_left(&mut self) {
+        if self.cursor_pos > 0 { self.cursor_pos -= 1; }
+    }
+    pub fn move_cursor_right(&mut self) {
+        let len = self.input.chars().count();
+        if self.cursor_pos < len { self.cursor_pos += 1; }
+    }
+
+    pub fn move_word_left(&mut self) {
+        if self.cursor_pos == 0 { return; }
+        let chars: Vec<char> = self.input.chars().collect();
+        let mut i = self.cursor_pos;
+        // 跳过空白
+        while i > 0 && chars[i-1].is_whitespace() { i -= 1; }
+        // 跳过单词字符
+        while i > 0 && is_word_char(chars[i-1]) { i -= 1; }
+        self.cursor_pos = i;
+    }
+
+    pub fn move_word_right(&mut self) {
+        let chars: Vec<char> = self.input.chars().collect();
+        let mut i = self.cursor_pos;
+        let n = chars.len();
+        // 跳过单词字符
+        while i < n && is_word_char(chars[i]) { i += 1; }
+        // 跳过空白
+        while i < n && chars[i].is_whitespace() { i += 1; }
+        self.cursor_pos = i;
+    }
+
+    fn byte_index_for_char_pos(&self, char_pos: usize) -> usize {
+        if char_pos == 0 { return 0; }
+        let mut count = 0;
+        for (byte_idx, _ch) in self.input.char_indices() {
+            if count == char_pos { return byte_idx; }
+            count += 1;
+        }
+        self.input.len()
     }
 
     fn highlight_sql_syntax(&self, input: &str) -> Vec<Span<'static>> {
@@ -324,4 +396,8 @@ impl Input {
 
         frame.render_widget(suggestion_paragraph, suggestion_area);
     }
+}
+
+fn is_word_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' || ch == '.'
 }

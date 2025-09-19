@@ -193,6 +193,14 @@ impl App {
                     // ESC键退出SQL模式
                     self.input.set_mode(InputMode::Command);
                 }
+                KeyCode::Home => {
+                    self.input.move_cursor_start();
+                    self.input.hide_suggestions();
+                }
+                KeyCode::End => {
+                    self.input.move_cursor_end();
+                    self.input.hide_suggestions();
+                }
                 KeyCode::Enter => {
                     match self.handle_sql_command().await {
                         Ok(should_exit) => {
@@ -254,22 +262,56 @@ impl App {
                     }
                 }
                 KeyCode::Right => {
-                    // 右箭头键：下一个建议
-                    if self.input.is_showing_suggestions() {
+                    // 单词跳跃（Alt/Option+Right）
+                    if key.modifiers.contains(KeyModifiers::ALT) {
+                        self.input.move_word_right();
+                        self.input.hide_suggestions();
+                    } else if self.input.is_showing_suggestions() {
+                        // 建议切换
                         self.input.next_suggestion();
+                    } else {
+                        // 普通光标右移
+                        self.input.move_cursor_right();
+                        self.input.hide_suggestions();
                     }
-                    // 在SQL模式下，右箭头键不添加空格，让用户直接输入
                 }
                 KeyCode::Left => {
-                    // 左箭头键：上一个建议
-                    if self.input.is_showing_suggestions() {
+                    // 单词跳跃（Alt/Option+Left）
+                    if key.modifiers.contains(KeyModifiers::ALT) {
+                        self.input.move_word_left();
+                        self.input.hide_suggestions();
+                    } else if self.input.is_showing_suggestions() {
+                        // 建议切换
                         self.input.prev_suggestion();
+                    } else {
+                        // 普通光标左移
+                        self.input.move_cursor_left();
+                        self.input.hide_suggestions();
                     }
                 }
                 KeyCode::Char(ch) => {
-                    self.input.add_char(ch);
-                    // 输入字符时隐藏建议
-                    self.input.hide_suggestions();
+                    // 快捷键：行首/行尾、字符/单词跳跃
+                    if key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::SUPER) {
+                        match ch {
+                            'a' | 'A' => { self.input.move_cursor_start(); }
+                            'e' | 'E' => { self.input.move_cursor_end(); }
+                            'b' | 'B' => { self.input.move_cursor_left(); }
+                            'f' | 'F' => { self.input.move_cursor_right(); }
+                            _ => { self.input.add_char(ch); }
+                        }
+                        self.input.hide_suggestions();
+                    } else if key.modifiers.contains(KeyModifiers::ALT) {
+                        match ch {
+                            'b' | 'B' => { self.input.move_word_left(); }
+                            'f' | 'F' => { self.input.move_word_right(); }
+                            _ => { self.input.add_char(ch); }
+                        }
+                        self.input.hide_suggestions();
+                    } else {
+                        self.input.add_char(ch);
+                        // 输入字符时隐藏建议
+                        self.input.hide_suggestions();
+                    }
                 }
                 KeyCode::Backspace => {
                     self.input.delete_char();

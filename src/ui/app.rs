@@ -14,6 +14,7 @@ use ratatui::{
     Terminal,
 };
 use std::io;
+use std::collections::HashMap;
 
 use crate::{
     config::Config,
@@ -38,6 +39,8 @@ pub struct App {
     
     // 状态
     current_db: Option<String>,
+    // 表名 -> 列名缓存（用于上下文补全）
+    table_columns: HashMap<String, Vec<String>>,
 }
 
 impl App {
@@ -55,6 +58,7 @@ impl App {
             status_bar: StatusBar::new(),
             input: Input::new(),
             current_db: None,
+            table_columns: HashMap::new(),
         };
 
         // 初始化数据
@@ -233,16 +237,23 @@ impl App {
                     self.input.hide_suggestions();
                 }
                 KeyCode::Enter => {
-                    match self.handle_sql_command().await {
-                        Ok(should_exit) => {
-                            if should_exit {
-                                return Ok(true); // 退出程序
-                            }
+                    // 如果建议可见，则优先应用当前建议
+                    if self.input.is_showing_suggestions() {
+                        if let Some(s) = self.input.get_current_suggestion() {
+                            self.input.apply_suggestion(&s);
                         }
-                        Err(e) => {
-                            // SQL 执行失败时显示错误，但不退出程序
-                            self.content.set_content_type(ContentType::Error);
-                            self.content.set_content(format!("SQL 执行错误: {}", e));
+                    } else {
+                        match self.handle_sql_command().await {
+                            Ok(should_exit) => {
+                                if should_exit {
+                                    return Ok(true); // 退出程序
+                                }
+                            }
+                            Err(e) => {
+                                // SQL 执行失败时显示错误，但不退出程序
+                                self.content.set_content_type(ContentType::Error);
+                                self.content.set_content(format!("SQL 执行错误: {}", e));
+                            }
                         }
                     }
                 }
@@ -521,7 +532,11 @@ impl App {
         let before: String = chars[..start].iter().collect();
         let before_lower = before.to_lowercase();
 
-        // 规则：use -> 数据库列表；from/join/desc/describe -> 表列表；默认 -> SQL 关键字
+        // 规则：
+        // use -> 数据库列表；
+        // from/join/desc/describe -> 表列表；
+        // where/and/or/<table>. -> 列名；
+        // 默认 -> SQL 关键字
         if before_lower.ends_with("use ") {
             // 建议数据库
             let dbs: Vec<String> = self.sidebar
@@ -545,6 +560,46 @@ impl App {
                 .collect();
             self.input.set_external_suggestions(tables);
             return;
+        }
+
+        // WHERE/AND/OR 上下文：建议列名（若能解析到表名，优先对应表；否则合并当前库所有表的列）
+        let where_triggers = ["where ", "and ", "or "]; // 简化处理
+        let is_where_context = where_triggers.iter().any(|t| before_lower.ends_with(t));
+        let dot_context = token.ends_with('.');
+        if is_where_context || dot_context {
+            let mut column_suggestions: Vec<String> = Vec::new();
+            // 简化：如果 token 包含 table. 前缀，则只取对应表的列
+            let table_prefix_opt = if dot_context {
+                let tbl = token.trim_end_matches('.');
+                if !tbl.is_empty() { Some(tbl.to_string()) } else { None }
+            } else { None };
+
+            if let Some(tbl) = table_prefix_opt {
+                if let Some(cols) = self.table_columns.get(&tbl) {
+                    column_suggestions = cols.clone();
+                } else {
+                    // 未缓存则暂不加载（避免阻塞/引入依赖）；清空建议
+                    column_suggestions.clear();
+                }
+                self.input.set_external_suggestions(column_suggestions);
+                return;
+            }
+
+            // 未提供 table. 前缀，则合并当前已知表的列（去重）
+            let mut set = std::collections::BTreeSet::new();
+            for cols in self.table_columns.values() {
+                for c in cols { set.insert(c.clone()); }
+            }
+            column_suggestions = set.into_iter().collect();
+            if !column_suggestions.is_empty() {
+                // 过滤前缀匹配
+                let prefix = token.to_lowercase();
+                let filtered: Vec<String> = column_suggestions.into_iter()
+                    .filter(|c| prefix.is_empty() || c.to_lowercase().starts_with(&prefix))
+                    .collect();
+                self.input.set_external_suggestions(filtered);
+                return;
+            }
         }
 
         // 默认清空外部建议，回退到内建 SQL 关键字建议（仅在空输入时显示）
@@ -746,6 +801,9 @@ impl App {
         if let Some(db_name) = &self.current_db {
             match self.db_queries.get_table_schema(db_name, &table_name).await {
                 Ok((columns, comment)) => {
+                    // 先写入缓存再更新 UI
+                    let col_names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+                    self.table_columns.insert(table_name.clone(), col_names);
                     self.content.set_table_name(table_name);
                     self.content.set_table_schema(columns, comment);
                 }

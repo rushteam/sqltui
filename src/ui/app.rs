@@ -66,6 +66,10 @@ impl App {
         app.load_mysql_version().await?;
         app.set_username().await?;
 
+        // 启动时显示帮助页
+        app.content.set_content_type(ContentType::Help);
+        app.content.set_content(app.get_help_content());
+
         Ok(app)
     }
 
@@ -982,7 +986,15 @@ impl App {
     }
 
     fn get_help_content(&self) -> String {
-        "帮助信息:\n\n\
+        "MYSQL CLIENT v1.0 - READY\n\n\
+        [INSTRUCTIONS]\n\
+        - Use Up/Down keys to navigate\n\
+        - Press Enter to view table structure\n\
+        - Press Space to view table data (10 rows)\n\
+        - Press ':' to enter SQL edit mode\n\
+        - Press 'q' to exit\n\
+        \n\
+        帮助信息:\n\n\
         导航:\n\
         - Up/Down: 上下移动选择项\n\
         - Enter: 查看表结构\n\
@@ -993,15 +1005,20 @@ impl App {
         - t: 查看表详情\n\
         - s: 切换数据库\n\
         - : 进入 SQL 编辑模式\n\
-        - q: 退出程序\n\n\
+        - q: 在根菜单退出程序\n\n\
         SQL 编辑模式:\n\
-        - 输入 SQL 查询语句\n\
-        - Enter 执行查询\n\
-        - Tab 添加缩进(4个空格)\n\
-        - 在查询末尾添加 \\\\G 使用垂直输出\n\
-        - USE database 切换数据库\n\
-        - exit/quit/\\q 退出程序\n\
-        - Esc 退出 SQL 编辑模式\n\n\
+        - 输入 SQL 语句后按 Enter 执行（不会自动退出 SQL 模式）\n\
+        - 末尾添加 \\\\G 或 \\\\g 使用垂直输出\n\
+        - 输入 \\h 或 \\help 显示本帮助\n\
+        - 智能提示：\n\
+          * 输入 'use ' 后提示库名；输入前缀可过滤\n\
+          * 输入 'from '/ 'join '/ 'desc '/ 'describe ' 后提示表名\n\
+          * 输入 'where '/ 'and '/ 'or ' 后提示列名\n\
+          * 输入 '<table>.' 时提示该表的列（自动加载并缓存列名）\n\
+          * 上/下 或 左/右 切换建议；Tab 应用当前建议（无建议时尝试生成）；Esc 关闭建议\n\
+        - 历史记录：建议关闭时，Up/Down 在历史命令中切换\n\
+        - 切库：执行 USE <db>; 或在侧边栏选择数据库\n\
+        - 退出：Esc 退出 SQL 模式；输入 exit/quit/\\q 并回车可退出程序\n\n\
         表结构模式:\n\
         - Up/Down: 滚动查看字段\n\
         - Esc: 返回表列表\n\n\

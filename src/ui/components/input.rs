@@ -416,20 +416,16 @@ impl Input {
         let mut suggestion_lines = Vec::new();
         for (i, suggestion) in suggestions.iter().enumerate() {
             let style = if i == self.suggestion_index {
-                Style::default().fg(Color::Yellow).bg(Color::Blue)
+                Style::default().fg(Color::Black).bg(Color::Green).bold()
             } else {
                 Style::default().fg(Color::Cyan)
             };
-            suggestion_lines.push(Line::from(vec![
-                Span::styled("  ", Style::default()),
-                Span::styled(suggestion, style),
-            ]));
+            suggestion_lines.push(Line::from(vec![Span::styled(suggestion, style)]));
         }
 
         let suggestion_block = Block::default()
             .borders(Borders::ALL)
-            .title("建议")
-            .style(Style::default().fg(Color::Blue));
+            .style(Style::default().fg(Color::Green));
 
         let suggestion_paragraph = Paragraph::new(suggestion_lines)
             .block(suggestion_block)

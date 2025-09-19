@@ -217,8 +217,12 @@ impl App {
         if self.input.get_mode() == &InputMode::SQL {
             match key.code {
                 KeyCode::Esc => {
-                    // ESC键退出SQL模式
-                    self.input.set_mode(InputMode::Command);
+                    // 优先关闭建议框，其次退出 SQL 模式
+                    if self.input.is_showing_suggestions() {
+                        self.input.hide_suggestions();
+                    } else {
+                        self.input.set_mode(InputMode::Command);
+                    }
                 }
                 KeyCode::Home => {
                     self.input.move_cursor_start();
@@ -243,24 +247,32 @@ impl App {
                     }
                 }
                 KeyCode::Up => {
-                    // 上箭头键：历史记录向上
-                    if let Some(history_command) = self.input.get_history_up() {
-                        self.input.clear();
-                        for ch in history_command.chars() {
-                            self.input.add_char(ch);
+                    if self.input.is_showing_suggestions() {
+                        self.input.prev_suggestion();
+                    } else {
+                        // 上箭头键：历史记录向上
+                        if let Some(history_command) = self.input.get_history_up() {
+                            self.input.clear();
+                            for ch in history_command.chars() {
+                                self.input.add_char(ch);
+                            }
                         }
                     }
                 }
                 KeyCode::Down => {
-                    // 下箭头键：历史记录向下
-                    if let Some(history_command) = self.input.get_history_down() {
-                        self.input.clear();
-                        for ch in history_command.chars() {
-                            self.input.add_char(ch);
-                        }
+                    if self.input.is_showing_suggestions() {
+                        self.input.next_suggestion();
                     } else {
-                        // 如果到达历史记录末尾，清空输入
-                        self.input.clear();
+                        // 下箭头键：历史记录向下
+                        if let Some(history_command) = self.input.get_history_down() {
+                            self.input.clear();
+                            for ch in history_command.chars() {
+                                self.input.add_char(ch);
+                            }
+                        } else {
+                            // 如果到达历史记录末尾，清空输入
+                            self.input.clear();
+                        }
                     }
                 }
                 KeyCode::Tab => {

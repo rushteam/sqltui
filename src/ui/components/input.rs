@@ -119,17 +119,14 @@ impl Input {
     }
 
     pub fn get_current_suggestion(&self) -> Option<String> {
-        if self.show_suggestions {
-            let suggestions = self.get_autocomplete_suggestions(&self.input);
-            suggestions.get(self.suggestion_index).cloned()
-        } else {
-            None
-        }
+        if !self.show_suggestions { return None; }
+        let suggestions = self.compute_suggestions();
+        suggestions.get(self.suggestion_index).cloned()
     }
 
     pub fn next_suggestion(&mut self) {
         if self.show_suggestions {
-            let suggestions = self.get_autocomplete_suggestions(&self.input);
+            let suggestions = self.compute_suggestions();
             if !suggestions.is_empty() {
                 self.suggestion_index = (self.suggestion_index + 1) % suggestions.len();
             }
@@ -138,7 +135,7 @@ impl Input {
 
     pub fn prev_suggestion(&mut self) {
         if self.show_suggestions {
-            let suggestions = self.get_autocomplete_suggestions(&self.input);
+            let suggestions = self.compute_suggestions();
             if !suggestions.is_empty() {
                 self.suggestion_index = if self.suggestion_index == 0 {
                     suggestions.len() - 1
@@ -149,33 +146,16 @@ impl Input {
         }
     }
 
-    pub fn is_showing_suggestions(&self) -> bool {
-        self.show_suggestions
-    }
+    pub fn is_showing_suggestions(&self) -> bool { self.show_suggestions }
 
-    pub fn get_autocomplete_suggestions(&self, input: &str) -> Vec<String> {
-        // 外部建议优先（上下文联想）
-        if let Some(list) = &self.external_suggestions {
-            return list.clone();
-        }
-        let mut suggestions = Vec::new();
-        let input_trimmed = input.trim();
-        
-        // 如果输入为空，返回常用关键字
-        if input_trimmed.is_empty() {
-            return vec![
-                "SELECT".to_string(),
-                "SHOW".to_string(),
-                "USE".to_string(),
-                "DESCRIBE".to_string(),
-                "EXPLAIN".to_string(),
-            ];
-        }
-        
-        let input_lower = input_trimmed.to_lowercase();
-        
-        // SQL关键字自动补全
-        let sql_keywords = vec![
+    pub fn compute_suggestions(&self) -> Vec<String> {
+        // 外部建议优先（上下文联想）：from/join/use/where 等由 App 设置
+        if let Some(list) = &self.external_suggestions { return list.clone(); }
+
+        // 基础 SQL 关键字（基于当前 token，而不是整行）
+        let (token, _start) = self.current_token();
+        let token_lower = token.to_lowercase();
+        let mut keywords = vec![
             "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP",
             "ALTER", "USE", "SHOW", "DESCRIBE", "EXPLAIN", "JOIN", "LEFT", "RIGHT", "INNER",
             "OUTER", "ON", "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET", "DISTINCT",
@@ -183,17 +163,18 @@ impl Input {
             "IS", "NULL", "TRUE", "FALSE", "ASC", "DESC", "AS", "UNION", "ALL", "EXISTS",
             "DATABASES", "TABLES", "COLUMNS", "INDEX", "INDEXES", "PROCESSLIST", "STATUS",
             "VARIABLES", "GRANTS", "PRIVILEGES", "USERS", "FUNCTIONS", "PROCEDURES", "TRIGGERS"
-        ];
-        
-        for keyword in sql_keywords {
-            if keyword.to_lowercase().starts_with(&input_lower) {
-                suggestions.push(keyword.to_string());
-            }
+        ].into_iter().map(|s| s.to_string()).collect::<Vec<String>>();
+
+        if token_lower.is_empty() {
+            // 返回热门关键字
+            return vec![
+                "SELECT","SHOW","USE","DESCRIBE","EXPLAIN","INSERT","UPDATE","DELETE"
+            ].into_iter().map(|s| s.to_string()).collect();
         }
-        
-        // 限制建议数量
-        suggestions.truncate(10);
-        suggestions
+
+        keywords.retain(|kw| kw.to_lowercase().starts_with(&token_lower));
+        keywords.truncate(10);
+        keywords
     }
 
     pub fn set_external_suggestions(&mut self, items: Vec<String>) {
@@ -405,9 +386,7 @@ impl Input {
 
     // render_suggestions（旧）已移除，改为 render_suggestions_popup 由 App 提供区域
 
-    pub fn current_suggestions(&self) -> Vec<String> {
-        self.get_autocomplete_suggestions(&self.input)
-    }
+    pub fn current_suggestions(&self) -> Vec<String> { self.compute_suggestions() }
 
     pub fn render_suggestions_popup(&self, frame: &mut Frame, popup_area: Rect) {
         let suggestions = self.current_suggestions();
@@ -452,6 +431,16 @@ impl Input {
         };
         let prefix_len = mode_text.len() + 3 + prompt.len();
         prefix_len + self.cursor_pos
+    }
+
+    fn current_token(&self) -> (String, usize) {
+        let chars: Vec<char> = self.input.chars().collect();
+        let mut i = self.cursor_pos.min(chars.len());
+        while i > 0 && chars[i-1].is_whitespace() { i -= 1; }
+        let mut start = i;
+        while start > 0 && is_word_char(chars[start-1]) { start -= 1; }
+        let token: String = chars[start..i].iter().collect();
+        (token, start)
     }
 }
 

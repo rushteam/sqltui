@@ -290,7 +290,7 @@ impl App {
                             self.input.apply_suggestion(&s);
                         }
                     } else {
-                        self.update_context_suggestions();
+                        self.update_context_suggestions_async().await;
                     }
                 }
                 KeyCode::Right => {
@@ -332,23 +332,28 @@ impl App {
                             _ => { self.input.add_char(ch); }
                         }
                         // 输入字符后尝试更新上下文建议
-                        self.update_context_suggestions();
+                        self.update_context_suggestions_async().await;
                     } else if key.modifiers.contains(KeyModifiers::ALT) {
                         match ch {
                             'b' | 'B' => { self.input.move_word_left(); }
                             'f' | 'F' => { self.input.move_word_right(); }
                             _ => { self.input.add_char(ch); }
                         }
-                        self.update_context_suggestions();
+                        self.update_context_suggestions_async().await;
                     } else {
                         self.input.add_char(ch);
                         // 实时更新上下文建议
-                        self.update_context_suggestions();
+                        self.update_context_suggestions_async().await;
                     }
                 }
                 KeyCode::Backspace => {
                     self.input.delete_char();
-                    self.update_context_suggestions();
+                    self.update_context_suggestions_async().await;
+                }
+                KeyCode::Char(' ') => {
+                    // 空格后也实时更新上下文建议（重要：from / use 等后空格即提示）
+                    self.input.add_char(' ');
+                    self.update_context_suggestions_async().await;
                 }
                 _ => {
                     // 在SQL模式下忽略其他所有键
@@ -445,6 +450,8 @@ impl App {
                     self.input.set_current_db(self.current_db.clone());
                     // 重置历史记录索引
                     self.input.reset_history_index();
+                    // 初始显示建议（关键字热词）
+                    self.input.show_suggestions();
                 }
             _ => {}
         }
@@ -514,27 +521,32 @@ impl App {
         Ok(())
     }
 
-    fn update_context_suggestions(&mut self) {
-        if self.input.get_mode() != &InputMode::SQL { return; }
+    async fn update_context_suggestions_async(&mut self) {
+        if self.input.get_mode() != &InputMode::SQL { 
+            return; 
+        }
         let input = self.input.get_input();
         let cursor_pos = self.input.get_cursor_pos();
 
-        // 获取光标左侧 token
+        // 获取光标左侧完整文本（保留尾随空格），以及供 token 解析用的位置 i（去除尾随空格）
         let chars: Vec<char> = input.chars().collect();
-        let mut i = cursor_pos;
+        let cur = cursor_pos;
+        let before_full: String = chars[..cur].iter().collect();
+        let before_full_lower = before_full.to_lowercase();
+
+        // 用于提取当前 token 的索引：跳过尾随空白
+        let mut i = cur;
         while i > 0 && chars[i-1].is_whitespace() { i -= 1; }
         let mut start = i;
         while start > 0 && (chars[start-1].is_alphanumeric() || chars[start-1] == '_' || chars[start-1] == '$' || chars[start-1] == '.') { start -= 1; }
         let token: String = chars[start..i].iter().collect();
-        let before: String = chars[..start].iter().collect();
-        let before_lower = before.to_lowercase();
 
         // 规则：
         // use -> 数据库列表；
         // from/join/desc/describe -> 表列表；
         // where/and/or/<table>. -> 列名；
         // 默认 -> SQL 关键字
-        if before_lower.ends_with("use ") {
+        if before_full_lower.ends_with("use ") {
             // 建议数据库
             let dbs: Vec<String> = self.sidebar
                 .get_databases_ref()
@@ -548,20 +560,30 @@ impl App {
 
         // 检测关键字后的空格：from / join / desc / describe
         let triggers = ["from ", "join ", "desc ", "describe "];
-        if triggers.iter().any(|t| before_lower.ends_with(t)) {
-            let tables: Vec<String> = self.sidebar
-                .get_tables_ref()
-                .iter()
-                .map(|t| t.name.clone())
-                .filter(|name| token.is_empty() || name.to_lowercase().starts_with(&token.to_lowercase()))
+        if triggers.iter().any(|t| before_full_lower.ends_with(t)) {
+            // 若表列表为空，尝试懒加载当前库的表
+            let table_names: Vec<String> = if self.sidebar.get_tables_ref().is_empty() {
+                if let Some(db) = &self.current_db {
+                    if let Ok(tables) = self.db_queries.get_tables(db).await {
+                        self.sidebar.set_tables(tables.clone());
+                        tables.into_iter().map(|t| t.name).collect()
+                    } else { Vec::new() }
+                } else { Vec::new() }
+            } else {
+                self.sidebar.get_tables_ref().iter().map(|t| t.name.clone()).collect()
+            };
+            let token_lower = token.to_lowercase();
+            let filtered: Vec<String> = table_names
+                .into_iter()
+                .filter(|name| token_lower.is_empty() || name.to_lowercase().starts_with(&token_lower))
                 .collect();
-            self.input.set_external_suggestions(tables);
+            self.input.set_external_suggestions(filtered);
             return;
         }
 
         // WHERE/AND/OR 上下文：建议列名（若能解析到表名，优先对应表；否则合并当前库所有表的列）
         let where_triggers = ["where ", "and ", "or "]; // 简化处理
-        let is_where_context = where_triggers.iter().any(|t| before_lower.ends_with(t));
+        let is_where_context = where_triggers.iter().any(|t| before_full_lower.ends_with(t));
         let dot_context = token.ends_with('.');
         if is_where_context || dot_context {
             let mut column_suggestions: Vec<String> = Vec::new();
@@ -575,8 +597,18 @@ impl App {
                 if let Some(cols) = self.table_columns.get(&tbl) {
                     column_suggestions = cols.clone();
                 } else {
-                    // 未缓存则暂不加载（避免阻塞/引入依赖）；清空建议
-                    column_suggestions.clear();
+                    // 未缓存则尝试懒加载该表的列
+                    if let Some(db_name) = &self.current_db {
+                        if let Ok((columns, _comment)) = self.db_queries.get_table_schema(db_name, &tbl).await {
+                            let col_names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+                            self.table_columns.insert(tbl.clone(), col_names.clone());
+                            column_suggestions = col_names;
+                        } else {
+                            column_suggestions.clear();
+                        }
+                    } else {
+                        column_suggestions.clear();
+                    }
                 }
                 self.input.set_external_suggestions(column_suggestions);
                 return;
@@ -601,11 +633,8 @@ impl App {
 
         // 默认清空外部建议，回退到内建 SQL 关键字建议（仅在空输入时显示）
         self.input.clear_external_suggestions();
-        if token.is_empty() {
-            self.input.show_suggestions();
-        } else {
-            self.input.hide_suggestions();
-        }
+        // 总是显示关键字建议（基于当前 token 过滤）
+        self.input.show_suggestions();
     }
 
     async fn handle_space(&mut self) -> Result<()> {

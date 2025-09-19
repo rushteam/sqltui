@@ -21,6 +21,8 @@ pub struct Content {
     content: String,
     table_headers: Vec<String>,
     table_rows: Vec<Vec<String>>,
+    // 是否采用垂直模式（由 \G 触发）
+    vertical_mode: bool,
     schema_columns: Vec<SchemaColumn>,
     table_comment: Option<String>,
     current_table_name: Option<String>,
@@ -36,6 +38,7 @@ impl Content {
             content: String::new(),
             table_headers: Vec::new(),
             table_rows: Vec::new(),
+            vertical_mode: false,
             schema_columns: Vec::new(),
             table_comment: None,
             current_table_name: None,
@@ -66,6 +69,14 @@ impl Content {
     pub fn set_table_data(&mut self, headers: Vec<String>, rows: Vec<Vec<String>>) {
         self.table_headers = headers;
         self.table_rows = rows;
+        self.vertical_mode = false;
+        self.content_type = ContentType::TableData;
+    }
+
+    pub fn set_table_data_vertical(&mut self, headers: Vec<String>, rows: Vec<Vec<String>>) {
+        self.table_headers = headers;
+        self.table_rows = rows;
+        self.vertical_mode = true;
         self.content_type = ContentType::TableData;
     }
 
@@ -252,6 +263,64 @@ impl Content {
     }
 
     fn render_table_data(&mut self, frame: &mut Frame, area: Rect) {
+        // 垂直模式（\G）优先
+        if self.vertical_mode {
+            let total_rows = self.table_rows.len();
+            if total_rows == 0 {
+                let block = Block::default()
+                    .title("垂直输出")
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(Color::Green));
+                frame.render_widget(block, area);
+                return;
+            }
+
+            if self.data_scroll_offset >= total_rows {
+                self.data_scroll_offset = total_rows.saturating_sub(1);
+            }
+
+            let current_row = self.data_scroll_offset;
+            let title_suffix = format!(" (↑↓切换行) {}/{}", current_row + 1, total_rows);
+            let title = if let Some(table_name) = &self.current_table_name {
+                format!("垂直输出 - {}{}", table_name, title_suffix)
+            } else {
+                format!("垂直输出{}", title_suffix)
+            };
+
+            let block = Block::default()
+                .title(title)
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::Green));
+
+            let inner_area = block.inner(area);
+
+            // 当前行展开为两列：字段 | 值
+            let rows: Vec<ratatui::widgets::Row> = self
+                .table_headers
+                .iter()
+                .enumerate()
+                .map(|(i, h)| {
+                    let value = self.table_rows[current_row]
+                        .get(i)
+                        .cloned()
+                        .unwrap_or_default();
+                    ratatui::widgets::Row::new(vec![h.clone(), value])
+                })
+                .collect();
+
+            let widths = [Constraint::Length(20), Constraint::Min(10)];
+            let table = Table::new(rows, widths)
+                .header(
+                    ratatui::widgets::Row::new(vec!["字段", "值"]).style(Style::default().fg(Color::Yellow).bold())
+                )
+                .block(Block::default().borders(Borders::NONE))
+                .column_spacing(1);
+
+            frame.render_widget(block, area);
+            frame.render_widget(table, inner_area);
+            return;
+        }
+
         // 计算可显示的行数和列数
         let available_height = area.height as usize;
         let available_width = area.width as usize;

@@ -497,16 +497,43 @@ impl App {
     }
 
     async fn handle_sql_command(&mut self) -> Result<bool> {
-        let command = self.input.get_input().to_string();
+        let raw_command = self.input.get_input().to_string();
         
         // 添加到历史记录
-        self.input.add_to_history(command.clone());
+        self.input.add_to_history(raw_command.clone());
         
         self.input.clear();
         // 保持在 SQL 模式，直到用户按 Esc 主动退出
 
-        if command.trim().is_empty() {
+        if raw_command.trim().is_empty() {
             return Ok(false);
+        }
+
+        // \G 兼容：检测并移除末尾的 \G / \g（大小写与空白兼容）
+        let mut use_vertical = false;
+        let mut command = raw_command.clone();
+        {
+            let trimmed = raw_command.trim_end();
+            // 兼容尾随 ; 与空白：如  "SELECT 1;  \\G" 或 "SELECT 1 \\g"
+            // 先去掉末尾空白
+            let mut end = trimmed.len();
+            // 反向跳过空白
+            while end > 0 && trimmed.as_bytes()[end - 1].is_ascii_whitespace() { end -= 1; }
+            // 处理可选的 ;
+            if end > 0 && trimmed.as_bytes()[end - 1] == b';' {
+                end -= 1;
+                while end > 0 && trimmed.as_bytes()[end - 1].is_ascii_whitespace() { end -= 1; }
+            }
+            // 尝试匹配以 \\G 或 \\g 结尾
+            if end >= 2 {
+                let tail = &trimmed[end - 2..end];
+                if tail == "\\G" || tail == "\\g" {
+                    use_vertical = true;
+                    // 去除尾部标记并还原命令
+                    let base = &trimmed[..end - 2].trim_end();
+                    command = base.trim_end_matches(';').trim_end().to_string();
+                }
+            }
         }
 
         // 检查是否是USE命令
@@ -545,7 +572,11 @@ impl App {
                                 self.content.set_content_type(ContentType::Database);
                                 self.content.set_content("查询执行成功，无结果".to_string());
                             } else {
-                                self.content.set_table_data(headers, rows);
+                                if use_vertical {
+                                    self.content.set_table_data_vertical(headers, rows);
+                                } else {
+                                    self.content.set_table_data(headers, rows);
+                                }
                             }
                         }
                         Err(e) => {
@@ -727,6 +758,7 @@ impl App {
         - 输入 SQL 查询语句\n\
         - Enter 执行查询\n\
         - Tab 添加缩进(4个空格)\n\
+        - 在查询末尾添加 \\\\G 使用垂直输出\n\
         - USE database 切换数据库\n\
         - exit/quit/\\q 退出程序\n\
         - Esc 退出 SQL 编辑模式\n\n\
@@ -734,7 +766,7 @@ impl App {
         - Up/Down: 滚动查看字段\n\
         - Esc: 返回表列表\n\n\
         表数据模式:\n\
-        - Up/Down: 垂直滚动查看行\n\
+        - Up/Down: 垂直滚动查看行（垂直输出时切换行）\n\
         - Left/Right: 水平滚动查看列\n\
         - Esc: 返回表列表".to_string()
     }

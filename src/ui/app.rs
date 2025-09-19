@@ -354,11 +354,6 @@ impl App {
                     self.input.delete_char();
                     self.update_context_suggestions_async().await;
                 }
-                KeyCode::Char(' ') => {
-                    // 空格后也实时更新上下文建议（重要：from / use 等后空格即提示）
-                    self.input.add_char(' ');
-                    self.update_context_suggestions_async().await;
-                }
                 _ => {
                     // 在SQL模式下忽略其他所有键
                 }

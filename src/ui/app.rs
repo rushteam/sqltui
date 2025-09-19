@@ -540,52 +540,87 @@ impl App {
         let mut start = i;
         while start > 0 && (chars[start-1].is_alphanumeric() || chars[start-1] == '_' || chars[start-1] == '$' || chars[start-1] == '.') { start -= 1; }
         let token: String = chars[start..i].iter().collect();
+        // 关键：使用“到当前 token 之前”的前缀判断关键字上下文
+        let before_token: String = chars[..start].iter().collect();
+        let before_token_lower = before_token.to_lowercase();
 
         // 规则：
         // use -> 数据库列表；
         // from/join/desc/describe -> 表列表；
         // where/and/or/<table>. -> 列名；
         // 默认 -> SQL 关键字
-        if before_full_lower.ends_with("use ") {
-            // 建议数据库
+        let _after_keyword = |kw: &str| -> bool {
+            before_full_lower.ends_with(kw) || before_token_lower.ends_with(kw)
+        };
+        if let Some(pos) = before_full_lower.rfind("use ") {
+            // 以最后一次出现的 "use " 为锚点，计算其后的前缀（不移除尾随空白）
+            let prefix_raw = &before_full[pos + 4..];
+            let prefix = prefix_raw.trim();
+            let prefix_lower = prefix.to_lowercase();
             let dbs: Vec<String> = self.sidebar
                 .get_databases_ref()
                 .iter()
                 .map(|d| d.name.clone())
-                .filter(|name| token.is_empty() || name.to_lowercase().starts_with(&token.to_lowercase()))
+                .filter(|name| prefix_lower.is_empty() || name.to_lowercase().starts_with(&prefix_lower))
                 .collect();
             self.input.set_external_suggestions(dbs);
             return;
         }
 
         // 检测关键字后的空格：from / join / desc / describe
-        let triggers = ["from ", "join ", "desc ", "describe "];
-        if triggers.iter().any(|t| before_full_lower.ends_with(t)) {
-            // 若表列表为空，尝试懒加载当前库的表
-            let table_names: Vec<String> = if self.sidebar.get_tables_ref().is_empty() {
-                if let Some(db) = &self.current_db {
-                    if let Ok(tables) = self.db_queries.get_tables(db).await {
-                        self.sidebar.set_tables(tables.clone());
-                        tables.into_iter().map(|t| t.name).collect()
+        let _triggers = ["from ", "join ", "desc ", "describe "];
+        {
+            // 查找最近的 from/join/desc/describe 触发点
+            let mut last_pos: Option<usize> = None;
+            let mut last_len: usize = 0;
+            for t in ["from ", "join ", "desc ", "describe "] {
+                if let Some(p) = before_full_lower.rfind(t) {
+                    if last_pos.map_or(true, |prev| p > prev) { last_pos = Some(p); last_len = t.len(); }
+                }
+            }
+            if let Some(p) = last_pos {
+                let prefix_raw = &before_full[p + last_len..];
+                let prefix = prefix_raw.trim();
+                let prefix_lower = prefix.to_lowercase();
+                // 若表列表为空，尝试懒加载当前库的表
+                let table_names: Vec<String> = if self.sidebar.get_tables_ref().is_empty() {
+                    if let Some(db) = &self.current_db {
+                        if let Ok(tables) = self.db_queries.get_tables(db).await {
+                            self.sidebar.set_tables(tables.clone());
+                            tables.into_iter().map(|t| t.name).collect()
+                        } else { Vec::new() }
                     } else { Vec::new() }
-                } else { Vec::new() }
-            } else {
-                self.sidebar.get_tables_ref().iter().map(|t| t.name.clone()).collect()
-            };
-            let token_lower = token.to_lowercase();
-            let filtered: Vec<String> = table_names
-                .into_iter()
-                .filter(|name| token_lower.is_empty() || name.to_lowercase().starts_with(&token_lower))
-                .collect();
-            self.input.set_external_suggestions(filtered);
-            return;
+                } else {
+                    self.sidebar.get_tables_ref().iter().map(|t| t.name.clone()).collect()
+                };
+                let filtered: Vec<String> = table_names
+                    .into_iter()
+                    .filter(|name| prefix_lower.is_empty() || name.to_lowercase().starts_with(&prefix_lower))
+                    .collect();
+                self.input.set_external_suggestions(filtered);
+                return;
+            }
         }
 
         // WHERE/AND/OR 上下文：建议列名（若能解析到表名，优先对应表；否则合并当前库所有表的列）
         let where_triggers = ["where ", "and ", "or "]; // 简化处理
-        let is_where_context = where_triggers.iter().any(|t| before_full_lower.ends_with(t));
+        let mut where_prefix_lower: Option<String> = None;
+        {
+            let mut last_pos: Option<usize> = None;
+            let mut last_len: usize = 0;
+            for t in where_triggers {
+                if let Some(p) = before_full_lower.rfind(t) {
+                    if last_pos.map_or(true, |prev| p > prev) { last_pos = Some(p); last_len = t.len(); }
+                }
+            }
+            if let Some(p) = last_pos {
+                let prefix_raw = &before_full[p + last_len..];
+                let prefix = prefix_raw.trim();
+                where_prefix_lower = Some(prefix.to_lowercase());
+            }
+        }
         let dot_context = token.ends_with('.');
-        if is_where_context || dot_context {
+        if where_prefix_lower.is_some() || dot_context {
             let mut column_suggestions: Vec<String> = Vec::new();
             // 简化：如果 token 包含 table. 前缀，则只取对应表的列
             let table_prefix_opt = if dot_context {
@@ -621,11 +656,14 @@ impl App {
             }
             column_suggestions = set.into_iter().collect();
             if !column_suggestions.is_empty() {
-                // 过滤前缀匹配
-                let prefix = token.to_lowercase();
-                let filtered: Vec<String> = column_suggestions.into_iter()
-                    .filter(|c| prefix.is_empty() || c.to_lowercase().starts_with(&prefix))
-                    .collect();
+                // 使用 where 后的前缀进行过滤；若无则不过滤
+                let filtered: Vec<String> = if let Some(prefix) = where_prefix_lower {
+                    column_suggestions.into_iter()
+                        .filter(|c| prefix.is_empty() || c.to_lowercase().starts_with(&prefix))
+                        .collect()
+                } else {
+                    column_suggestions
+                };
                 self.input.set_external_suggestions(filtered);
                 return;
             }

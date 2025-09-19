@@ -125,6 +125,10 @@ impl Sidebar {
         self.tables.len()
     }
 
+    // 为联想提供引用
+    pub fn get_databases_ref(&self) -> &Vec<Database> { &self.databases }
+    pub fn get_tables_ref(&self) -> &Vec<Table> { &self.tables }
+
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         // 标题
         let title = if self.show_databases {

@@ -15,6 +15,8 @@ pub struct Input {
     suggestion_index: usize,
     // 光标位置（按字符计数，不是字节）
     cursor_pos: usize,
+    // 外部上下文建议（数据库/表名等）
+    external_suggestions: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -34,6 +36,7 @@ impl Input {
             show_suggestions: false,
             suggestion_index: 0,
             cursor_pos: 0,
+            external_suggestions: None,
         }
     }
 
@@ -103,13 +106,15 @@ impl Input {
         self.history_index = self.history.len();
     }
 
-    pub fn toggle_suggestions(&mut self) {
-        self.show_suggestions = !self.show_suggestions;
-        self.suggestion_index = 0;
-    }
+    // toggle_suggestions 已不再使用，交由 App 控制弹出显示
 
     pub fn hide_suggestions(&mut self) {
         self.show_suggestions = false;
+        self.suggestion_index = 0;
+    }
+
+    pub fn show_suggestions(&mut self) {
+        self.show_suggestions = true;
         self.suggestion_index = 0;
     }
 
@@ -149,6 +154,10 @@ impl Input {
     }
 
     pub fn get_autocomplete_suggestions(&self, input: &str) -> Vec<String> {
+        // 外部建议优先（上下文联想）
+        if let Some(list) = &self.external_suggestions {
+            return list.clone();
+        }
         let mut suggestions = Vec::new();
         let input_trimmed = input.trim();
         
@@ -185,6 +194,45 @@ impl Input {
         // 限制建议数量
         suggestions.truncate(10);
         suggestions
+    }
+
+    pub fn set_external_suggestions(&mut self, items: Vec<String>) {
+        if items.is_empty() {
+            self.external_suggestions = None;
+            self.hide_suggestions();
+        } else {
+            self.external_suggestions = Some(items);
+            self.show_suggestions();
+        }
+    }
+
+    pub fn clear_external_suggestions(&mut self) {
+        self.external_suggestions = None;
+    }
+
+    pub fn get_cursor_pos(&self) -> usize { self.cursor_pos }
+
+    pub fn apply_suggestion(&mut self, suggestion: &str) {
+        // 以光标为界，替换当前词（word_char 定义见底部）
+        let chars: Vec<char> = self.input.chars().collect();
+        let mut start = self.cursor_pos;
+        while start > 0 && is_word_char(chars[start - 1]) { start -= 1; }
+        let end = self.cursor_pos;
+        let start_byte = self.byte_index_for_char_pos(start);
+        let end_byte = self.byte_index_for_char_pos(end);
+        self.input.replace_range(start_byte..end_byte, suggestion);
+        let inserted_chars = suggestion.chars().count();
+        self.cursor_pos = start + inserted_chars;
+        // 若光标后不是空白，补一个空格
+        let after_byte = self.byte_index_for_char_pos(self.cursor_pos);
+        let after_char = self.input[after_byte..].chars().next();
+        if !matches!(after_char, Some(c) if c.is_whitespace()) {
+            let bi = self.byte_index_for_char_pos(self.cursor_pos);
+            self.input.insert(bi, ' ');
+            self.cursor_pos += 1;
+        }
+        // 选单使用后隐藏
+        self.hide_suggestions();
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
@@ -247,10 +295,7 @@ impl Input {
 
         frame.render_widget(paragraph, area);
 
-        // 在SQL模式下显示建议
-        if self.mode == InputMode::SQL && self.show_suggestions {
-            self.render_suggestions(frame, area);
-        }
+        // 建议弹出浮框由 App 统一渲染（覆盖在输入框外部）
     }
 
     // 光标移动与边界
@@ -358,19 +403,15 @@ impl Input {
         }
     }
 
-    fn render_suggestions(&self, frame: &mut Frame, input_area: Rect) {
-        let suggestions = self.get_autocomplete_suggestions(&self.input);
-        if suggestions.is_empty() {
-            return;
-        }
+    // render_suggestions（旧）已移除，改为 render_suggestions_popup 由 App 提供区域
 
-        // 在输入框下方显示建议
-        let suggestion_area = Rect {
-            x: input_area.x,
-            y: input_area.y + input_area.height,
-            width: input_area.width,
-            height: std::cmp::min(suggestions.len() as u16 + 2, 8), // 最多显示8行
-        };
+    pub fn current_suggestions(&self) -> Vec<String> {
+        self.get_autocomplete_suggestions(&self.input)
+    }
+
+    pub fn render_suggestions_popup(&self, frame: &mut Frame, popup_area: Rect) {
+        let suggestions = self.current_suggestions();
+        if suggestions.is_empty() { return; }
 
         let mut suggestion_lines = Vec::new();
         for (i, suggestion) in suggestions.iter().enumerate() {
@@ -394,7 +435,27 @@ impl Input {
             .block(suggestion_block)
             .alignment(Alignment::Left);
 
-        frame.render_widget(suggestion_paragraph, suggestion_area);
+        frame.render_widget(suggestion_paragraph, popup_area);
+    }
+
+    pub fn cursor_display_column(&self) -> usize {
+        // 计算渲染时左侧前缀宽度：[MODE] + " > " + prompt
+        let mode_text = match self.mode {
+            InputMode::Command => "[CMD_MODE]",
+            InputMode::SQL => "[SQL_MODE]",
+        };
+        let prompt = match self.mode {
+            InputMode::Command => "mysql> ".to_string(),
+            InputMode::SQL => {
+                if let Some(db) = &self.current_db {
+                    format!("{}@localhost:{}> ", "root", db)
+                } else {
+                    "root@localhost:(none)> ".to_string()
+                }
+            },
+        };
+        let prefix_len = mode_text.len() + 3 + prompt.len();
+        prefix_len + self.cursor_pos
     }
 }
 

@@ -182,6 +182,33 @@ impl App {
         self.status_bar.render(f, chunks[0]);
         self.sidebar.render(f, main_chunks[0]);
         self.content.render(f, main_chunks[1]);
+
+        // 实时弹出建议浮框：不预留空间，直接覆盖在主内容区底部
+        if self.input.get_mode() == &InputMode::SQL && self.input.is_showing_suggestions() {
+            let suggestions = self.input.current_suggestions();
+            if !suggestions.is_empty() {
+                let desired: u16 = std::cmp::min(suggestions.len() as u16 + 2, 8);
+                let max_h: u16 = main_chunks[1].height; // 仅覆盖在内容区内部
+                let height: u16 = std::cmp::max(1, std::cmp::min(desired, max_h));
+
+                // 根据光标列，计算浮框 x 偏移，尽量靠近光标
+                let screen_width = f.area().width as usize;
+                let cursor_col = self.input.cursor_display_column();
+                let cursor_col_u16 = (cursor_col as u16).min(f.area().width.saturating_sub(10));
+                let popup_width: u16 = (screen_width as u16).min(60); // 限宽
+                let x = cursor_col_u16.saturating_sub(2).min(main_chunks[1].x + main_chunks[1].width - popup_width);
+
+                let y: u16 = main_chunks[1].y + main_chunks[1].height.saturating_sub(height);
+                let popup_area = ratatui::layout::Rect {
+                    x,
+                    y,
+                    width: popup_width,
+                    height,
+                };
+                self.input.render_suggestions_popup(f, popup_area);
+            }
+        }
+
         self.input.render(f, chunks[2]);
     }
 
@@ -237,28 +264,13 @@ impl App {
                     }
                 }
                 KeyCode::Tab => {
-                    // TAB键：切换建议显示或自动补全
+                    // TAB键：应用当前建议；若无建议则尝试生成上下文建议
                     if self.input.is_showing_suggestions() {
-                        // 如果正在显示建议，使用当前选中的建议
-                        if let Some(suggestion) = self.input.get_current_suggestion() {
-                            let current_input = self.input.get_input().to_string();
-                            let words: Vec<&str> = current_input.split_whitespace().collect();
-                            if let Some(last_word) = words.last() {
-                                let remaining = suggestion.strip_prefix(last_word).unwrap_or("");
-                                for ch in remaining.chars() {
-                                    self.input.add_char(ch);
-                                }
-                            } else {
-                                for ch in suggestion.chars() {
-                                    self.input.add_char(ch);
-                                }
-                                self.input.add_char(' ');
-                            }
+                        if let Some(s) = self.input.get_current_suggestion() {
+                            self.input.apply_suggestion(&s);
                         }
-                        self.input.hide_suggestions();
                     } else {
-                        // 显示建议
-                        self.input.toggle_suggestions();
+                        self.update_context_suggestions();
                     }
                 }
                 KeyCode::Right => {
@@ -299,22 +311,24 @@ impl App {
                             'f' | 'F' => { self.input.move_cursor_right(); }
                             _ => { self.input.add_char(ch); }
                         }
-                        self.input.hide_suggestions();
+                        // 输入字符后尝试更新上下文建议
+                        self.update_context_suggestions();
                     } else if key.modifiers.contains(KeyModifiers::ALT) {
                         match ch {
                             'b' | 'B' => { self.input.move_word_left(); }
                             'f' | 'F' => { self.input.move_word_right(); }
                             _ => { self.input.add_char(ch); }
                         }
-                        self.input.hide_suggestions();
+                        self.update_context_suggestions();
                     } else {
                         self.input.add_char(ch);
-                        // 输入字符时隐藏建议
-                        self.input.hide_suggestions();
+                        // 实时更新上下文建议
+                        self.update_context_suggestions();
                     }
                 }
                 KeyCode::Backspace => {
                     self.input.delete_char();
+                    self.update_context_suggestions();
                 }
                 _ => {
                     // 在SQL模式下忽略其他所有键
@@ -478,6 +492,56 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    fn update_context_suggestions(&mut self) {
+        if self.input.get_mode() != &InputMode::SQL { return; }
+        let input = self.input.get_input();
+        let cursor_pos = self.input.get_cursor_pos();
+
+        // 获取光标左侧 token
+        let chars: Vec<char> = input.chars().collect();
+        let mut i = cursor_pos;
+        while i > 0 && chars[i-1].is_whitespace() { i -= 1; }
+        let mut start = i;
+        while start > 0 && (chars[start-1].is_alphanumeric() || chars[start-1] == '_' || chars[start-1] == '$' || chars[start-1] == '.') { start -= 1; }
+        let token: String = chars[start..i].iter().collect();
+        let before: String = chars[..start].iter().collect();
+        let before_lower = before.to_lowercase();
+
+        // 规则：use -> 数据库列表；from/join/desc/describe -> 表列表；默认 -> SQL 关键字
+        if before_lower.ends_with("use ") {
+            // 建议数据库
+            let dbs: Vec<String> = self.sidebar
+                .get_databases_ref()
+                .iter()
+                .map(|d| d.name.clone())
+                .filter(|name| token.is_empty() || name.to_lowercase().starts_with(&token.to_lowercase()))
+                .collect();
+            self.input.set_external_suggestions(dbs);
+            return;
+        }
+
+        // 检测关键字后的空格：from / join / desc / describe
+        let triggers = ["from ", "join ", "desc ", "describe "];
+        if triggers.iter().any(|t| before_lower.ends_with(t)) {
+            let tables: Vec<String> = self.sidebar
+                .get_tables_ref()
+                .iter()
+                .map(|t| t.name.clone())
+                .filter(|name| token.is_empty() || name.to_lowercase().starts_with(&token.to_lowercase()))
+                .collect();
+            self.input.set_external_suggestions(tables);
+            return;
+        }
+
+        // 默认清空外部建议，回退到内建 SQL 关键字建议（仅在空输入时显示）
+        self.input.clear_external_suggestions();
+        if token.is_empty() {
+            self.input.show_suggestions();
+        } else {
+            self.input.hide_suggestions();
+        }
     }
 
     async fn handle_space(&mut self) -> Result<()> {

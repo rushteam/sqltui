@@ -237,23 +237,20 @@ impl App {
                     self.input.hide_suggestions();
                 }
                 KeyCode::Enter => {
-                    // 如果建议可见，则优先应用当前建议
+                    // Enter 始终执行查询；若有建议，先关闭浮层
                     if self.input.is_showing_suggestions() {
-                        if let Some(s) = self.input.get_current_suggestion() {
-                            self.input.apply_suggestion(&s);
+                        self.input.hide_suggestions();
+                    }
+                    match self.handle_sql_command().await {
+                        Ok(should_exit) => {
+                            if should_exit {
+                                return Ok(true); // 退出程序
+                            }
                         }
-                    } else {
-                        match self.handle_sql_command().await {
-                            Ok(should_exit) => {
-                                if should_exit {
-                                    return Ok(true); // 退出程序
-                                }
-                            }
-                            Err(e) => {
-                                // SQL 执行失败时显示错误，但不退出程序
-                                self.content.set_content_type(ContentType::Error);
-                                self.content.set_content(format!("SQL 执行错误: {}", e));
-                            }
+                        Err(e) => {
+                            // SQL 执行失败时显示错误，但不退出程序
+                            self.content.set_content_type(ContentType::Error);
+                            self.content.set_content(format!("SQL 执行错误: {}", e));
                         }
                     }
                 }

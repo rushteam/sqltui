@@ -562,7 +562,7 @@ impl App {
 
                 let is_query = matches!(
                     first_word.as_str(),
-                    "SELECT" | "SHOW" | "DESCRIBE" | "EXPLAIN"
+                    "SELECT" | "SHOW" | "DESCRIBE" | "DESC" | "EXPLAIN"
                 );
 
                 if is_query {

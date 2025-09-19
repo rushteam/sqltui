@@ -163,8 +163,8 @@ impl App {
     }
 
     fn is_at_root(&self) -> bool {
-        // 根目录：显示数据库列表且为欢迎页面
-        self.sidebar.get_show_databases() && matches!(self.content.get_content_type(), ContentType::Welcome)
+        // 根目录：显示数据库列表且为帮助页面
+        self.sidebar.get_show_databases() && matches!(self.content.get_content_type(), ContentType::Help)
     }
 
     fn ui(&mut self, f: &mut Frame) {
@@ -478,8 +478,8 @@ impl App {
                 self.sidebar.set_show_databases(true);
                 self.current_db = None;
                 self.status_bar.set_current_db(None);
-                self.content.set_content_type(ContentType::Welcome);
-                self.content.set_content("MYSQL CLIENT v1.0 - READY\n\n[INSTRUCTIONS]\n- Use Up/Down keys to navigate\n- Press Enter to view table structure\n- Press Space to view table data (10 rows)\n- Press ':' to enter SQL edit mode\n- Press 'q' to exit\n\n[STATUS] CONNECTED".to_string());
+                self.content.set_content_type(ContentType::Help);
+                self.content.set_content(self.get_help_content());
             }
             _ => {}
         }
@@ -731,8 +731,8 @@ impl App {
             self.sidebar.set_show_databases(true);
             self.current_db = None;
             self.status_bar.set_current_db(None);
-            self.content.set_content_type(ContentType::Welcome);
-            self.content.set_content("MYSQL CLIENT v1.0 - READY\n\n[INSTRUCTIONS]\n- Use Up/Down keys to navigate\n- Press Enter to view table structure\n- Press Space to view table data (10 rows)\n- Press ':' to enter SQL edit mode\n- Press 'q' to exit\n\n[STATUS] CONNECTED".to_string());
+            self.content.set_content_type(ContentType::Help);
+            self.content.set_content(self.get_help_content());
         }
         Ok(())
     }

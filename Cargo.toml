@@ -9,6 +9,7 @@ description = "A MySQL TUI client built with Rust and ratatui"
 # TUI framework
 ratatui = "0.29"
 crossterm = "0.28"
+async-trait = "0.1"
 
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "mysql", "chrono", "uuid"] }

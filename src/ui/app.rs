@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 use crate::{
     config::Config,
-    db::{DatabaseConnection, DatabaseQueries},
+    db::{DbAdapter, new_adapter},
     ui::components::{Content, Input, Sidebar, StatusBar},
 };
 
@@ -27,7 +27,7 @@ use crate::ui::components::input::InputMode;
 
 pub struct App {
     // 数据库相关
-    db_queries: DatabaseQueries,
+    db: Box<dyn DbAdapter>,
     // 连接配置（用于重建带数据库名的连接池）
     config: Config,
     
@@ -45,13 +45,10 @@ pub struct App {
 
 impl App {
     pub async fn new(config: Config) -> Result<Self> {
-        let dsn = config.get_dsn();
-        let db_connection = DatabaseConnection::new(&dsn).await?;
-        let pool = db_connection.get_pool().clone();
-        let db_queries = DatabaseQueries::new(pool);
+        let db = new_adapter(&config).await?;
 
         let mut app = Self {
-            db_queries,
+            db,
             config: config.clone(),
             sidebar: Sidebar::new(),
             content: Content::new(),
@@ -76,10 +73,7 @@ impl App {
     async fn rebuild_pool_for_database(&mut self, database_name: Option<String>) -> Result<()> {
         // 更新配置中的数据库名
         self.config.database = database_name;
-        let dsn = self.config.get_dsn();
-        let db_connection = DatabaseConnection::new(&dsn).await?;
-        let pool = db_connection.get_pool().clone();
-        self.db_queries = DatabaseQueries::new(pool);
+        self.db = new_adapter(&self.config).await?;
         Ok(())
     }
 
@@ -583,8 +577,8 @@ impl App {
                 let prefix_lower = prefix.to_lowercase();
                 // 若表列表为空，尝试懒加载当前库的表
                 let table_names: Vec<String> = if self.sidebar.get_tables_ref().is_empty() {
-                    if let Some(db) = &self.current_db {
-                        if let Ok(tables) = self.db_queries.get_tables(db).await {
+                if let Some(db) = &self.current_db {
+                    if let Ok(tables) = self.db.get_tables(db).await {
                             self.sidebar.set_tables(tables.clone());
                             tables.into_iter().map(|t| t.name).collect()
                         } else { Vec::new() }
@@ -633,7 +627,7 @@ impl App {
                 } else {
                     // 未缓存则尝试懒加载该表的列
                     if let Some(db_name) = &self.current_db {
-                        if let Ok((columns, _comment)) = self.db_queries.get_table_schema(db_name, &tbl).await {
+                        if let Ok((columns, _comment)) = self.db.get_table_schema(db_name, &tbl).await {
                             let col_names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
                             self.table_columns.insert(tbl.clone(), col_names.clone());
                             column_suggestions = col_names;
@@ -802,7 +796,7 @@ impl App {
                 );
 
                 if is_query {
-                    match self.db_queries.execute_query_raw(&command).await {
+                    match self.db.execute_query_raw(&command).await {
                         Ok((headers, rows)) => {
                             if rows.is_empty() {
                                 self.content.set_content_type(ContentType::Database);
@@ -821,7 +815,7 @@ impl App {
                         }
                     }
                 } else {
-                    match self.db_queries.execute_non_query(&command).await {
+                    match self.db.execute_non_query(&command).await {
                         Ok(affected) => {
                             self.content.set_content_type(ContentType::Database);
                             self.content.set_content(format!("执行成功，受影响行数: {}", affected));
@@ -838,14 +832,14 @@ impl App {
     }
 
     async fn load_databases(&mut self) -> Result<()> {
-        let databases = self.db_queries.get_databases().await?;
+        let databases = self.db.get_databases().await?;
         self.sidebar.set_databases(databases);
         Ok(())
     }
 
     async fn load_tables(&mut self) -> Result<()> {
         if let Some(db_name) = &self.current_db {
-            match self.db_queries.get_tables(db_name).await {
+            match self.db.get_tables(db_name).await {
                 Ok(tables) => {
                     self.sidebar.set_tables(tables);
                     self.content.set_content_type(ContentType::Tables);
@@ -862,7 +856,7 @@ impl App {
 
     async fn load_table_schema(&mut self, table_name: String) -> Result<()> {
         if let Some(db_name) = &self.current_db {
-            match self.db_queries.get_table_schema(db_name, &table_name).await {
+            match self.db.get_table_schema(db_name, &table_name).await {
                 Ok((columns, comment)) => {
                     // 先写入缓存再更新 UI
                     let col_names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
@@ -883,7 +877,7 @@ impl App {
         if let Some(_db_name) = &self.current_db {
             // 由于已经执行了 USE 命令，可以直接使用表名
             let query = format!("SELECT * FROM `{}` LIMIT {}", table_name, limit);
-            match self.db_queries.execute_query_raw(&query).await {
+            match self.db.execute_query_raw(&query).await {
                 Ok((headers, rows)) => {
                     if rows.is_empty() {
                         self.content.set_content_type(ContentType::TableData);
@@ -902,7 +896,7 @@ impl App {
     }
 
     async fn load_mysql_version(&mut self) -> Result<()> {
-        match self.db_queries.get_mysql_version().await {
+        match self.db.get_version().await {
             Ok(version) => {
                 self.status_bar.set_mysql_version(version);
             }
@@ -914,7 +908,7 @@ impl App {
     }
 
     async fn set_username(&mut self) -> Result<()> {
-        match self.db_queries.get_current_user().await {
+        match self.db.get_current_user().await {
             Ok(username) => {
                 self.status_bar.set_username(username);
             }
@@ -942,7 +936,7 @@ impl App {
 
     async fn handle_use_database(&mut self, db_name: String) -> Result<()> {
         // 检查数据库是否存在
-        let databases = self.db_queries.get_databases().await?;
+        let databases = self.db.get_databases().await?;
         if !databases.iter().any(|db| db.name == db_name) {
             self.content.set_content_type(ContentType::Error);
             self.content.set_content(format!("数据库 '{}' 不存在", db_name));

@@ -7,7 +7,8 @@ use ratatui::{
 
 pub struct StatusBar {
     current_db: Option<String>,
-    mysql_version: Option<String>,
+    driver_name: Option<String>,
+    server_version: Option<String>,
     username: Option<String>,
     status: String,
 }
@@ -16,7 +17,8 @@ impl StatusBar {
     pub fn new() -> Self {
         Self {
             current_db: None,
-            mysql_version: None,
+            driver_name: None,
+            server_version: None,
             username: None,
             status: "READY".to_string(),
         }
@@ -26,8 +28,12 @@ impl StatusBar {
         self.current_db = db;
     }
 
-    pub fn set_mysql_version(&mut self, version: String) {
-        self.mysql_version = Some(version);
+    pub fn set_driver(&mut self, driver: &str) {
+        self.driver_name = Some(driver.to_string());
+    }
+
+    pub fn set_server_version(&mut self, version: String) {
+        self.server_version = Some(version);
     }
 
     pub fn set_username(&mut self, username: String) {
@@ -41,10 +47,9 @@ impl StatusBar {
             .map(|db| format!("DB: {}", db))
             .unwrap_or_else(|| "No DB".to_string());
 
-        let version_info = self.mysql_version
-            .as_ref()
-            .map(|v| format!("MySQL: {}", v))
-            .unwrap_or_else(|| "MySQL: Unknown".to_string());
+        let driver = self.driver_name.as_deref().unwrap_or("sql");
+        let version = self.server_version.as_deref().unwrap_or("Unknown");
+        let version_info = format!("{}: {}", driver, version);
 
         let user_info = self.username
             .as_ref()
@@ -52,7 +57,7 @@ impl StatusBar {
             .unwrap_or_else(|| "User: Unknown".to_string());
 
         let content = Line::from(vec![
-            Span::styled("[MYSQL_CLIENT] ", Style::default().fg(Color::Green).bold()),
+            Span::styled("[SQLTUI] ", Style::default().fg(Color::Green).bold()),
             Span::styled(&self.status, Style::default().fg(Color::Yellow)),
             Span::raw(" | "),
             Span::styled(&user_info, Style::default().fg(Color::Magenta)),

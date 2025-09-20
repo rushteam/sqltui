@@ -60,7 +60,7 @@ impl App {
 
         // 初始化数据
         app.load_databases().await?;
-        app.load_mysql_version().await?;
+        app.load_server_version().await?;
         app.set_username().await?;
 
         // 启动时显示帮助页
@@ -895,13 +895,20 @@ impl App {
         Ok(())
     }
 
-    async fn load_mysql_version(&mut self) -> Result<()> {
+    async fn load_server_version(&mut self) -> Result<()> {
         match self.db.get_version().await {
             Ok(version) => {
-                self.status_bar.set_mysql_version(version);
+                // 设置驱动名与版本
+                let driver = match self.config.driver() { 
+                    crate::config::Driver::Mysql => "MySQL",
+                    crate::config::Driver::Postgres => "Postgres",
+                    crate::config::Driver::Clickhouse => "ClickHouse",
+                };
+                self.status_bar.set_driver(driver);
+                self.status_bar.set_server_version(version);
             }
             Err(e) => {
-                eprintln!("Failed to get MySQL version: {}", e);
+                eprintln!("Failed to get server version: {}", e);
             }
         }
         Ok(())
@@ -975,7 +982,7 @@ impl App {
     }
 
     fn get_help_content(&self) -> String {
-        "MYSQL CLIENT v1.0 - READY\n\n\
+        "SQLTUI v1.0 - READY\n\n\
         [INSTRUCTIONS]\n\
         - Use Up/Down keys to navigate\n\
         - Press Enter to view table structure\n\

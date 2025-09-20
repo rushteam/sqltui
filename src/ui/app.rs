@@ -441,6 +441,9 @@ impl App {
                     self.input.set_mode(InputMode::SQL);
                     // 更新当前数据库信息
                     self.input.set_current_db(self.current_db.clone());
+                    // 注入关键字（来自适配器）
+                    let kws: Vec<String> = self.db.keywords().iter().map(|s| s.to_string()).collect();
+                    self.input.set_keywords(kws);
                     // 重置历史记录索引
                     self.input.reset_history_index();
                     // 初始显示建议（关键字热词）
@@ -550,11 +553,16 @@ impl App {
             let prefix_raw = &before_full[pos + 4..];
             let prefix = prefix_raw.trim();
             let prefix_lower = prefix.to_lowercase();
+            let system_dbs = self.db.system_databases();
             let dbs: Vec<String> = self.sidebar
                 .get_databases_ref()
                 .iter()
                 .map(|d| d.name.clone())
-                .filter(|name| prefix_lower.is_empty() || name.to_lowercase().starts_with(&prefix_lower))
+                .filter(|name| {
+                    let lower = name.to_lowercase();
+                    let is_system = system_dbs.iter().any(|s| s.eq_ignore_ascii_case(&name));
+                    !is_system && (prefix_lower.is_empty() || lower.starts_with(&prefix_lower))
+                })
                 .collect();
             self.input.set_external_suggestions(dbs);
             return;
@@ -876,7 +884,8 @@ impl App {
     async fn load_table_data(&mut self, table_name: String, limit: usize) -> Result<()> {
         if let Some(_db_name) = &self.current_db {
             // 由于已经执行了 USE 命令，可以直接使用表名
-            let query = format!("SELECT * FROM `{}` LIMIT {}", table_name, limit);
+            let ident = self.db.quote_ident(&table_name);
+            let query = format!("SELECT * FROM {} LIMIT {}", ident, limit);
             match self.db.execute_query_raw(&query).await {
                 Ok((headers, rows)) => {
                     if rows.is_empty() {
@@ -898,13 +907,8 @@ impl App {
     async fn load_server_version(&mut self) -> Result<()> {
         match self.db.get_version().await {
             Ok(version) => {
-                // 设置驱动名与版本
-                let driver = match self.config.driver() { 
-                    crate::config::Driver::Mysql => "MySQL",
-                    crate::config::Driver::Postgres => "Postgres",
-                    crate::config::Driver::Clickhouse => "ClickHouse",
-                };
-                self.status_bar.set_driver(driver);
+                // 设置驱动名与版本（来自适配器）
+                self.status_bar.set_driver(self.db.driver_name());
                 self.status_bar.set_server_version(version);
             }
             Err(e) => {
@@ -942,6 +946,12 @@ impl App {
     }
 
     async fn handle_use_database(&mut self, db_name: String) -> Result<()> {
+        // 检查驱动是否支持 USE 语义
+        if !self.db.supports_use_database() {
+            self.content.set_content_type(ContentType::Error);
+            self.content.set_content("当前驱动不支持 USE 语义，请通过重连指定数据库".to_string());
+            return Ok(());
+        }
         // 检查数据库是否存在
         let databases = self.db.get_databases().await?;
         if !databases.iter().any(|db| db.name == db_name) {

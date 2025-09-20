@@ -7,10 +7,16 @@ use super::{connection::DatabaseConnection, queries::DatabaseQueries};
 
 #[async_trait]
 pub trait DbAdapter: Send + Sync {
+    fn driver_name(&self) -> &'static str;
+    fn keywords(&self) -> &'static [&'static str];
+    fn system_databases(&self) -> &'static [&'static str];
+    fn supports_use_database(&self) -> bool { true }
+    fn quote_ident(&self, ident: &str) -> String { format!("`{}`", ident.replace('`', "``")) }
     async fn get_databases(&self) -> Result<Vec<Database>>;
     async fn get_tables(&self, database_name: &str) -> Result<Vec<Table>>;
     async fn get_table_schema(&self, database_name: &str, table_name: &str) -> Result<(Vec<SchemaColumn>, Option<String>)>;
-    async fn execute_query_raw(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>)>;
+    async fn execute_query_raw(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>)>
+    ;
     async fn execute_non_query(&self, query: &str) -> Result<u64>;
     async fn get_version(&self) -> Result<String>;
     async fn get_current_user(&self) -> Result<String>;
@@ -30,6 +36,24 @@ impl MySqlAdapter {
 
 #[async_trait]
 impl DbAdapter for MySqlAdapter {
+    fn driver_name(&self) -> &'static str { "MySQL" }
+    fn keywords(&self) -> &'static [&'static str] {
+        &[
+            "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP",
+            "ALTER", "USE", "SHOW", "DESCRIBE", "EXPLAIN", "JOIN", "LEFT", "RIGHT", "INNER",
+            "OUTER", "ON", "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET", "DISTINCT",
+            "COUNT", "SUM", "AVG", "MIN", "MAX", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN",
+            "IS", "NULL", "TRUE", "FALSE", "ASC", "DESC", "AS", "UNION", "ALL", "EXISTS",
+            "DATABASES", "TABLES", "COLUMNS", "INDEX", "INDEXES", "PROCESSLIST", "STATUS",
+            "VARIABLES", "GRANTS", "PRIVILEGES", "USERS", "FUNCTIONS", "PROCEDURES", "TRIGGERS"
+        ]
+    }
+    fn system_databases(&self) -> &'static [&'static str] {
+        &["information_schema", "performance_schema", "mysql", "sys"]
+    }
+    fn supports_use_database(&self) -> bool { true }
+    fn quote_ident(&self, ident: &str) -> String { format!("`{}`", ident.replace('`', "``")) }
+
     async fn get_databases(&self) -> Result<Vec<Database>> { self.queries.get_databases().await }
     async fn get_tables(&self, database_name: &str) -> Result<Vec<Table>> { self.queries.get_tables(database_name).await }
     async fn get_table_schema(&self, database_name: &str, table_name: &str) -> Result<(Vec<SchemaColumn>, Option<String>)> { self.queries.get_table_schema(database_name, table_name).await }

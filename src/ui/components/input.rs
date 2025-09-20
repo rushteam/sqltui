@@ -17,6 +17,8 @@ pub struct Input {
     cursor_pos: usize,
     // 外部上下文建议（数据库/表名等）
     external_suggestions: Option<Vec<String>>,
+    // 可注入的关键字表（来自适配器）；为空则使用默认集
+    injected_keywords: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -37,6 +39,7 @@ impl Input {
             suggestion_index: 0,
             cursor_pos: 0,
             external_suggestions: None,
+            injected_keywords: None,
         }
     }
 
@@ -155,15 +158,19 @@ impl Input {
         // 基础 SQL 关键字（基于当前 token，而不是整行）
         let (token, _start) = self.current_token();
         let token_lower = token.to_lowercase();
-        let mut keywords = vec![
-            "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP",
-            "ALTER", "USE", "SHOW", "DESCRIBE", "EXPLAIN", "JOIN", "LEFT", "RIGHT", "INNER",
-            "OUTER", "ON", "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET", "DISTINCT",
-            "COUNT", "SUM", "AVG", "MIN", "MAX", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN",
-            "IS", "NULL", "TRUE", "FALSE", "ASC", "DESC", "AS", "UNION", "ALL", "EXISTS",
-            "DATABASES", "TABLES", "COLUMNS", "INDEX", "INDEXES", "PROCESSLIST", "STATUS",
-            "VARIABLES", "GRANTS", "PRIVILEGES", "USERS", "FUNCTIONS", "PROCEDURES", "TRIGGERS"
-        ].into_iter().map(|s| s.to_string()).collect::<Vec<String>>();
+        let mut keywords: Vec<String> = if let Some(list) = &self.injected_keywords {
+            list.clone()
+        } else {
+            vec![
+                "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP",
+                "ALTER", "USE", "SHOW", "DESCRIBE", "EXPLAIN", "JOIN", "LEFT", "RIGHT", "INNER",
+                "OUTER", "ON", "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET", "DISTINCT",
+                "COUNT", "SUM", "AVG", "MIN", "MAX", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN",
+                "IS", "NULL", "TRUE", "FALSE", "ASC", "DESC", "AS", "UNION", "ALL", "EXISTS",
+                "DATABASES", "TABLES", "COLUMNS", "INDEX", "INDEXES", "PROCESSLIST", "STATUS",
+                "VARIABLES", "GRANTS", "PRIVILEGES", "USERS", "FUNCTIONS", "PROCEDURES", "TRIGGERS"
+            ].into_iter().map(|s| s.to_string()).collect::<Vec<String>>()
+        };
 
         if token_lower.is_empty() {
             // 返回热门关键字
@@ -175,6 +182,14 @@ impl Input {
         keywords.retain(|kw| kw.to_lowercase().starts_with(&token_lower));
         keywords.truncate(10);
         keywords
+    }
+
+    pub fn set_keywords(&mut self, keywords: Vec<String>) {
+        if keywords.is_empty() {
+            self.injected_keywords = None;
+        } else {
+            self.injected_keywords = Some(keywords);
+        }
     }
 
     pub fn set_external_suggestions(&mut self, items: Vec<String>) {

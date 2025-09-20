@@ -1,44 +1,52 @@
-# SQLView - MySQL TUI Client
+# sqltui-rs - MySQL TUI Client
 
-一个使用 Rust 和 ratatui 构建的现代化 MySQL 终端客户端。
+一个使用 Rust 和 ratatui 构建的现代化 MySQL 终端客户端，支持首屏帮助与 SQL 模式智能提示。
 
-## 功能特性
+## 亮点特性
 
-- 🗄️ **数据库浏览** - 查看数据库和表列表
-- 📋 **表结构查看** - 显示详细的表结构信息
-- 🔍 **SQL 查询** - 支持执行 SQL 查询
-- ⌨️ **键盘导航** - 流畅的键盘操作体验
-- 🎨 **现代化界面** - 基于 ratatui 的美观 TUI
+- 数据库/表浏览：快速查看库与表列表
+- 表结构/数据查看：结构、10 行数据预览（左右/上下滚动）
+- SQL 查询执行：支持常见查询与非查询语句
+- SQL 模式智能提示：库名/表名/列名与 SQL 关键字的上下文联想
+- 首屏帮助：启动与按 q 返回根目录时统一展示帮助与 INSTRUCTIONS
+- 键盘导向：全程键盘操作，快捷键一致清晰
+- 跨平台发布：GitHub Releases 自动产物（Linux/macOS/Windows）
 
-## 安装要求
+## 安装
 
-- Rust 1.70+
-- MySQL 服务器
+### 方式一：下载二进制
 
-## 快速开始
+- 访问仓库 Releases 页面，选择对应平台并下载：
+  - `sqltui-rs-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz`
+  - `sqltui-rs-vX.Y.Z-aarch64-apple-darwin.tar.gz`
+  - `sqltui-rs-vX.Y.Z-x86_64-pc-windows-msvc.zip`
+- 解压后直接运行可执行文件 `sqltui-rs`（Windows 为 `sqltui-rs.exe`）。
 
-### 1. 克隆并构建
+### 方式二：源码构建
+
+前置：Rust 1.70+，可访问的 MySQL 服务器。
 
 ```bash
 git clone <repository-url>
-cd sqlview
+cd sqltui
 cargo build --release
+# 可执行文件位于 target/release/sqltui-rs
 ```
 
-### 2. 运行程序
+## 启动与连接
 
 ```bash
-# 使用默认参数（localhost:3306, root用户）
-cargo run
+# 使用默认参数（localhost:3306, 用户 root）
+./target/release/sqltui-rs
 
 # 指定连接参数
-cargo run -- -h localhost -u root -p your_password
+./target/release/sqltui-rs -h localhost -u root -p your_password
 
-# 连接到指定数据库
-cargo run -- -h localhost -u root -p root123 -d testdb
+# 指定数据库
+./target/release/sqltui-rs -h localhost -u root -p root123 -d testdb
 ```
 
-### 3. 命令行参数
+命令行参数：
 
 ```
 -h, --host <HOST>        MySQL 主机地址 (默认: localhost)
@@ -50,83 +58,88 @@ cargo run -- -h localhost -u root -p root123 -d testdb
 
 ## 使用说明
 
-### 界面布局
+### 首屏
+
+- 启动即显示帮助与 INSTRUCTIONS；在任意层级按 `q` 回根目录时同样显示该页面。
+
+### 布局
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ [MYSQL_CLIENT] READY | DB: testdb | MySQL: 8.0.33     │ ← 状态栏
 ├─────────────────┬───────────────────────────────────────┤
 │ 数据库列表      │ 主内容区域                            │
-│ • testdb        │ 显示数据库/表信息、表结构、查询结果   │
-│ • mysql         │                                     │
-│ • sys           │                                     │
-│                 │                                     │
-│ 选中: testdb    │                                     │
-│ Up/Down 移动    │                                     │
+│ • testdb        │ 帮助/库表信息/表结构/查询结果          │
+│ • mysql         │                                       │
+│ • sys           │                                       │
 ├─────────────────┴───────────────────────────────────────┤
 │ [CMD_MODE] > mysql>                                    │ ← 输入栏
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 快捷键
+### 快捷键（全局）
 
 | 按键 | 功能 |
 |------|------|
 | `↑/↓` | 上下导航 |
-| `Enter` | 选择/确认 |
-| `Esc` | 返回上一级 |
+| `Enter` | 选择/确认（在 SQL 模式中执行语句） |
+| `Esc` | 返回上一级（在 SQL 模式中退出 SQL 模式） |
 | `d` | 查看数据库详情 |
 | `t` | 查看表详情 |
 | `s` | 切换数据库 |
-| `\` | 进入 SQL 模式 |
-| `q` | 退出程序 |
+| `:` | 进入 SQL 模式 |
+| `q` | 在根目录退出程序 |
 
-### 操作流程
+### SQL 模式
 
-1. **选择数据库** - 使用上下键选择数据库，按 Enter 进入
-2. **查看表列表** - 在数据库中选择表，按 Enter 查看表结构
-3. **执行 SQL** - 按 `\` 进入 SQL 模式，输入查询语句
-4. **返回导航** - 按 `Esc` 返回上一级，按 `s` 返回数据库列表
+- 回车执行当前语句，保持在 SQL 模式
+- 末尾添加 `\G` 或 `\g` 使用垂直输出
+- 输入 `\h` 或 `\help` 显示帮助
+- 智能提示：
+  - 输入 `use ` 提示库名（可按前缀过滤）
+  - 输入 `from `/`join `/`desc `/`describe ` 提示表名（懒加载当前库的表）
+  - 输入 `where `/`and `/`or ` 提示列名
+  - 输入 `<table>.` 提示该表列名（自动加载并缓存）
+  - 上/下或左/右 切换建议；Tab 应用当前建议；Esc 关闭建议
+- 历史记录：当建议关闭时，`↑/↓` 在历史命令中切换
+- 退出：按 `Esc` 退出 SQL 模式；输入 `exit`/`quit`/`\q` 并回车可退出程序
 
-## 开发
+## 发布与下载
 
-### 项目结构
+- 打 tag 即生成对应 Release 与跨平台产物：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+- 工作流：`.github/workflows/release.yml`
+  - 触发条件：`push` 到 `v*` 标签
+  - 平台：Linux x86_64 / macOS arm64 / Windows x86_64
+  - 产物命名：`sqltui-rs-<TAG>-<TARGET>.(tar.gz|zip)`
+
+## 项目结构
 
 ```
 src/
-├── main.rs          # 程序入口
-├── config/          # 配置管理
-├── db/             # 数据库连接和查询
-├── models/         # 数据模型
-└── ui/             # TUI 界面组件
-    ├── app.rs      # 主应用逻辑
-    └── components/ # UI 组件
+├── main.rs          # 程序入口（panic 安全清理、参数解析）
+├── config/          # 配置管理（clap 参数、DSN 构造）
+├── db/              # 数据库连接与查询（sqlx）
+├── models/          # 数据模型
+└── ui/              # TUI 界面
+    ├── app.rs      # 主应用逻辑（状态机、SQL 模式、智能提示）
+    └── components/ # UI 组件（Sidebar/Content/Input/StatusBar）
 ```
 
-### 构建命令
+## 开发常用命令
 
 ```bash
-# 开发构建
-cargo build
-
-# 发布构建
-cargo build --release
-
-# 运行测试
-cargo test
-
-# 代码检查
-cargo clippy
+cargo build           # 开发构建
+cargo build --release # 发布构建
+cargo test            # 测试
+cargo clippy          # 代码检查
 ```
-
-## 技术栈
-
-- **Rust** - 系统编程语言
-- **ratatui** - 终端用户界面库
-- **sqlx** - 异步 SQL 工具包
-- **crossterm** - 跨平台终端操作
-- **clap** - 命令行参数解析
 
 ## 许可证
 
-MIT License
+MIT License（详见 `LICENSE`）

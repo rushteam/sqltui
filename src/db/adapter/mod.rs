@@ -1,10 +1,11 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::{config::{Config, Driver}, models::{Database, Table, SchemaColumn}};
 
 use crate::db::adapters::mysql::MySqlAdapter;
 use crate::db::adapters::postgres::PostgresAdapter;
+use crate::db::adapters::clickhouse::ClickHouseAdapter;
 
 #[async_trait]
 pub trait DbAdapter: Send + Sync {
@@ -27,7 +28,7 @@ pub async fn new_adapter(config: &Config) -> Result<Box<dyn DbAdapter>> {
     match config.driver() {
         Driver::Mysql => Ok(Box::new(MySqlAdapter::new(&dsn).await?)),
         Driver::Postgres => Ok(Box::new(PostgresAdapter::new(&dsn).await?)),
-        Driver::Clickhouse => Err(anyhow!("ClickHouse 适配器暂未实现")),
+        Driver::Clickhouse => Ok(Box::new(ClickHouseAdapter::new(&dsn).await?)),
     }
 }
 

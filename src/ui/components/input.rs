@@ -237,14 +237,14 @@ impl Input {
             InputMode::SQL => "[SQL_MODE]",
         };
 
-        // mycli风格的提示符
+        // mycli风格的提示符（更通用，去除硬编码 mysql 用户名/主机）
         let prompt = match self.mode {
-            InputMode::Command => "mysql> ".to_string(),
+            InputMode::Command => "> ".to_string(),
             InputMode::SQL => {
                 if let Some(db) = &self.current_db {
-                    format!("{}@localhost:{}> ", "root", db)
+                    format!("{}> ", db)
                 } else {
-                    "root@localhost:(none)> ".to_string()
+                    "> ".to_string()
                 }
             },
         };
@@ -435,12 +435,12 @@ impl Input {
             InputMode::SQL => "[SQL_MODE]",
         };
         let prompt = match self.mode {
-            InputMode::Command => "mysql> ".to_string(),
+            InputMode::Command => "> ".to_string(),
             InputMode::SQL => {
                 if let Some(db) = &self.current_db {
-                    format!("{}@localhost:{}> ", "root", db)
+                    format!("{}> ", db)
                 } else {
-                    "root@localhost:(none)> ".to_string()
+                    "> ".to_string()
                 }
             },
         };
